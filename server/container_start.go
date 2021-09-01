@@ -69,6 +69,12 @@ func (s *Server) StartContainer(ctx context.Context, req *types.StartContainerRe
 		return fmt.Errorf("failed to get runtime handler %q hooks", sandbox.RuntimeHandler())
 	}
 
+	if s.nri.isEnabled() {
+		if err = s.nri.startContainer(ctx, sandbox, c); err != nil {
+			log.Warnf(ctx, "NRI start failed for container %q: %v", c.ID(), err)
+		}
+	}
+
 	defer func() {
 		// if the call to StartContainer fails below we still want to fill
 		// some fields of a container status. In particular, we're going to
@@ -79,6 +85,12 @@ func (s *Server) StartContainer(ctx context.Context, req *types.StartContainerRe
 			if hooks != nil {
 				if err := hooks.PreStop(ctx, c, sandbox); err != nil {
 					log.Warnf(ctx, "Failed to run pre-stop hook for container %q: %v", c.ID(), err)
+				}
+			}
+
+			if s.nri.isEnabled() {
+				if err = s.nri.stopContainer(ctx, sandbox, c); err != nil {
+					log.Warnf(ctx, "NRI stop failed for container %q: %v", c.ID(), err)
 				}
 			}
 		}
@@ -97,11 +109,18 @@ func (s *Server) StartContainer(ctx context.Context, req *types.StartContainerRe
 		return fmt.Errorf("failed to start container %s: %w", c.ID(), err)
 	}
 
+	if s.nri.isEnabled() {
+		if err = s.nri.postStartContainer(ctx, sandbox, c); err != nil {
+			log.Warnf(ctx, "NRI post-start failed for container %q: %v", c.ID(), err)
+		}
+	}
+
 	log.WithFields(ctx, map[string]interface{}{
 		"description": c.Description(),
 		"containerID": c.ID(),
 		"sandboxID":   sandbox.ID(),
 		"PID":         state.Pid,
 	}).Infof("Started container")
+
 	return nil
 }

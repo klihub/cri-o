@@ -684,6 +684,7 @@ func (s *Server) runPodSandbox(ctx context.Context, req *types.RunPodSandboxRequ
 	if err := s.addSandbox(ctx, sb); err != nil {
 		return nil, err
 	}
+
 	resourceCleaner.Add(ctx, "runSandbox: removing pod sandbox "+sbox.ID(), func() error {
 		if err := s.removeSandbox(ctx, sbox.ID()); err != nil {
 			return fmt.Errorf("could not remove pod sandbox: %w", err)
@@ -980,6 +981,12 @@ func (s *Server) runPodSandbox(ctx context.Context, req *types.RunPodSandboxRequ
 		g.AddAnnotation(fmt.Sprintf("%s.%d", annotations.IP, idx), ip)
 	}
 	sb.AddIPs(ips)
+
+	if s.nri.isEnabled() {
+		if err := s.nri.runPodSandbox(ctx, sb); err != nil {
+			return nil, err
+		}
+	}
 
 	if isContextError(ctx.Err()) {
 		if err := s.resourceStore.Put(sbox.Name(), sb, resourceCleaner); err != nil {

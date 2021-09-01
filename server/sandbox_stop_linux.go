@@ -58,6 +58,11 @@ func (s *Server) stopPodSandbox(ctx context.Context, sb *sandbox.Sandbox) error 
 					if err := s.stopContainer(ctx, c, int64(10)); err != nil {
 						return fmt.Errorf("failed to stop container for pod sandbox %s: %v", sb.ID(), err)
 					}
+					if s.nri.isEnabled() {
+						if s.nri.stopContainer(ctx, sb, c); err != nil {
+							return err
+						}
+					}
 					return nil
 				})
 			}
@@ -82,6 +87,12 @@ func (s *Server) stopPodSandbox(ctx context.Context, sb *sandbox.Sandbox) error 
 
 	if err := sb.UnmountShm(ctx); err != nil {
 		return err
+	}
+
+	if s.nri.isEnabled() {
+		if err := s.nri.stopPodSandbox(ctx, sb); err != nil {
+			return err
+		}
 	}
 
 	log.Infof(ctx, "Stopped pod sandbox: %s", sb.ID())
