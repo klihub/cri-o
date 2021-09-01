@@ -7,6 +7,7 @@ import (
 
 	"github.com/containers/storage"
 	"github.com/cri-o/cri-o/internal/lib/sandbox"
+
 	"github.com/cri-o/cri-o/internal/log"
 	"github.com/cri-o/cri-o/internal/oci"
 	"golang.org/x/net/context"
@@ -39,6 +40,19 @@ func (s *Server) removeContainerInPod(ctx context.Context, sb *sandbox.Sandbox, 
 	if !sb.Stopped() {
 		if err := s.stopContainer(ctx, c, int64(10)); err != nil {
 			return fmt.Errorf("failed to stop container for removal")
+		}
+		if s.nri.isEnabled() {
+			if err := s.nri.StopContainer(ctx, c, sb); err != nil {
+				return fmt.Errorf("NRI container stop failed for container %s of pod %s: %w",
+					c.ID(), sb.ID(), err)
+			}
+		}
+	}
+
+	if s.nri.isEnabled() {
+		if err := s.nri.RemoveContainer(ctx, c); err != nil {
+			log.Warnf(ctx, "NRI container removal failed for container %s of pod %s: %v",
+				c.ID(), sb.ID(), err)
 		}
 	}
 
