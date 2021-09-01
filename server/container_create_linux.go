@@ -35,6 +35,15 @@ import (
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 
 	"github.com/intel/goresctrl/pkg/blockio"
+
+	nri "github.com/containerd/nri/v2alpha1/pkg/runtime"
+	nrigen "github.com/containerd/nri/v2alpha1/pkg/runtime-tools/generate"
+)
+
+const (
+	mountPrivate = "rprivate"
+	mountShared  = "rshared"
+	mountSlave   = "rslave"
 )
 
 const (
@@ -215,6 +224,7 @@ func (s *Server) createSandboxContainer(ctx context.Context, ctr ctrfactory.Cont
 		imgResult    *storage.ImageResult
 		imgResultErr error
 	)
+
 	for _, img := range images {
 		imgResult, imgResultErr = s.StorageImageServer().ImageStatus(s.config.SystemContext, img)
 		if imgResultErr == nil {
@@ -823,6 +833,32 @@ func (s *Server) createSandboxContainer(ctx context.Context, ctr ctrfactory.Cont
 		makeOCIConfigurationRootless(specgen)
 	}
 
+	if s.nri.isEnabled() {
+		defer func() {
+			if retErr != nil {
+				err := s.nri.RollbackCreateContainer(ctx, specgen.Config, ociContainer, sb)
+				if err != nil {
+					log.Warnf(ctx, "NRI creation rollback failed for container %q: %v",
+						containerID, err)
+				}
+			}
+		}()
+
+		adjust, err := s.nri.CreateContainer(ctx, specgen.Config, ociContainer, sb)
+		if err != nil {
+			return nil, err
+		}
+
+		if containerVolumes, err = s.adjustContainer(ctx, ctr, adjust,
+			containerVolumes, mountLabel, maybeRelabel, skipRelabel,
+			func(a map[string]string) error {
+				return s.FilterDisallowedAnnotations(sb.Annotations(), a, sb.RuntimeHandler())
+			},
+		); err != nil {
+			return nil, err
+		}
+	}
+
 	saveOptions := generate.ExportOptions{}
 	if err := specgen.SaveToFile(filepath.Join(containerInfo.Dir, "config.json"), saveOptions); err != nil {
 		return nil, err
@@ -934,25 +970,9 @@ func addOCIBindMounts(ctx context.Context, ctr ctrfactory.Container, mountLabel,
 		if m.HostPath == "/" && dest == "/" {
 			log.Warnf(ctx, "Configuration specifies mounting host root to the container root.  This is dangerous (especially with privileged containers) and should be avoided.")
 		}
-		src := filepath.Join(bindMountPrefix, m.HostPath)
-
-		resolvedSrc, err := resolveSymbolicLink(bindMountPrefix, src)
-		if err == nil {
-			src = resolvedSrc
-		} else {
-			if !os.IsNotExist(err) {
-				return nil, nil, fmt.Errorf("failed to resolve symlink %q: %v", src, err)
-			}
-			for _, toReject := range absentMountSourcesToReject {
-				if filepath.Clean(src) == toReject {
-					// special-case /etc/hostname, as we don't want it to be created as a directory
-					// This can cause issues with node reboot.
-					return nil, nil, errors.Errorf("Cannot mount %s: path does not exist and will cause issues as a directory", toReject)
-				}
-			}
-			if err = os.MkdirAll(src, 0o755); err != nil {
-				return nil, nil, fmt.Errorf("failed to mkdir %s: %s", src, err)
-			}
+		src, err := resolveMountSource(m.HostPath, bindMountPrefix, absentMountSourcesToReject)
+		if err != nil {
+			return nil, nil, err
 		}
 
 		options := []string{"rw"}
@@ -962,33 +982,22 @@ func addOCIBindMounts(ctx context.Context, ctr ctrfactory.Container, mountLabel,
 		options = append(options, "rbind")
 
 		// mount propagation
+		propagation := ""
 		switch m.Propagation {
 		case types.MountPropagation_PROPAGATION_PRIVATE:
-			options = append(options, "rprivate")
-			// Since default root propagation in runc is rprivate ignore
-			// setting the root propagation
+			propagation = mountPrivate
 		case types.MountPropagation_PROPAGATION_BIDIRECTIONAL:
-			if err := ensureShared(src, mountInfos); err != nil {
-				return nil, nil, err
-			}
-			options = append(options, "rshared")
-			if err := specgen.SetLinuxRootPropagation("rshared"); err != nil {
-				return nil, nil, err
-			}
+			propagation = mountShared
 		case types.MountPropagation_PROPAGATION_HOST_TO_CONTAINER:
-			if err := ensureSharedOrSlave(src, mountInfos); err != nil {
-				return nil, nil, err
-			}
-			options = append(options, "rslave")
-			if specgen.Config.Linux.RootfsPropagation != "rshared" &&
-				specgen.Config.Linux.RootfsPropagation != "rslave" {
-				if err := specgen.SetLinuxRootPropagation("rslave"); err != nil {
-					return nil, nil, err
-				}
-			}
+			propagation = mountSlave
 		default:
 			log.Warnf(ctx, "Unknown propagation mode for hostPath %q", m.HostPath)
-			options = append(options, "rprivate")
+			propagation = mountPrivate
+		}
+		options = append(options, propagation)
+
+		if err := setRootPropagation(src, propagation, specgen, mountInfos); err != nil {
+			return nil, nil, err
 		}
 
 		if m.SelinuxRelabel {
@@ -1029,6 +1038,59 @@ func addOCIBindMounts(ctx context.Context, ctr ctrfactory.Container, mountLabel,
 	}
 
 	return volumes, ociMounts, nil
+}
+
+// resolveMountSource resolves a bind-mount source, creating any missing directories.
+func resolveMountSource(src, mountPrefix string, rejectIfAbsent []string) (string, error) {
+	src = filepath.Join(mountPrefix, src)
+
+	if resolved, err := resolveSymbolicLink(mountPrefix, src); err == nil {
+		return resolved, nil
+	} else if !os.IsNotExist(err) {
+		return "", fmt.Errorf("failed to resolve symlink %q: %v", src, err)
+	}
+
+	for _, rejected := range rejectIfAbsent {
+		if filepath.Clean(src) == rejected {
+			// special-case /etc/hostname, as we don't want it to be created as a directory
+			// This can cause issues with node reboot.
+			return "", errors.Errorf("Cannot mount %s: path does not exist and will cause issues as a directory", rejected)
+		}
+	}
+
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		return "", fmt.Errorf("failed to mkdir %s: %s", src, err)
+	}
+
+	return src, nil
+}
+
+// setRootPropagation sets proper mount propagation for the given mount source.
+func setRootPropagation(src, prop string, spec *generate.Generator, mntInfo []*mount.Info) error {
+	switch prop {
+	case mountPrivate:
+		// Since default root propagation in runc is rprivate ignore
+		// setting the root propagation
+		return nil
+	case mountShared:
+		if err := ensureShared(src, mntInfo); err != nil {
+			return err
+		}
+		if err := spec.SetLinuxRootPropagation(mountShared); err != nil {
+			return err
+		}
+	case mountSlave:
+		if err := ensureSharedOrSlave(src, mntInfo); err != nil {
+			return err
+		}
+		if spec.Config.Linux.RootfsPropagation != mountShared &&
+			spec.Config.Linux.RootfsPropagation != mountSlave {
+			if err := spec.SetLinuxRootPropagation(mountSlave); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // mountExists returns true if dest exists in the list of mounts
@@ -1126,4 +1188,254 @@ func newLinuxContainerSecurityContext() *types.LinuxContainerSecurityContext {
 		Seccomp:          &types.SecurityProfile{},
 		Apparmor:         &types.SecurityProfile{},
 	}
+}
+
+func (s *Server) adjustContainer(ctx context.Context, ctr ctrfactory.Container, adjust *nri.ContainerAdjustment, volumes []oci.ContainerVolume, mountLabel string, maybeRelabel, skipRelabel bool, filter func(annotations map[string]string) error) ([]oci.ContainerVolume, error) {
+	if adjust == nil {
+		return volumes, nil
+	}
+
+	specgen := nrigen.SpecGenerator(ctr.Spec(),
+		nrigen.WithLabelFilter(
+			func(values map[string]string) (map[string]string, error) {
+				if err := filter(values); err != nil {
+					return nil, errors.Wrap(err, "invalid labels in NRI adjustment")
+				}
+				return values, nil
+			},
+		),
+		nrigen.WithAnnotationFilter(
+			func(values map[string]string) (map[string]string, error) {
+				if err := filter(values); err != nil {
+					return nil, errors.Wrap(err, "invalid annotations in NRI adjustment")
+				}
+				return values, nil
+			},
+		),
+		nrigen.WithResourceChecker(
+			func(r *rspec.LinuxResources) error {
+				if r == nil {
+					return nil
+				}
+				if mem := r.Memory; mem != nil {
+					if mem.Limit != nil {
+						if err := cgmgr.VerifyMemoryIsEnough(*mem.Limit); err != nil {
+							return err
+						}
+					}
+					if !node.CgroupHasMemorySwap() {
+						mem.Swap = nil
+					}
+				}
+				if !node.CgroupHasHugetlb() {
+					r.HugepageLimits = nil
+				}
+				return nil
+			},
+		),
+		nrigen.WithBlockIOResolver(
+			func(className string) (*rspec.LinuxBlockIO, error) {
+				if !s.Config().BlockIO().Enabled() || className == "" {
+					return nil, nil
+				}
+				if blockIO, err := blockio.OciLinuxBlockIO(className); err == nil {
+					return blockIO, nil
+				}
+				return nil, nil
+			},
+		),
+		nrigen.WithRdtResolver(
+			func(className string) (*rspec.LinuxIntelRdt, error) {
+				if className == "" {
+					return nil, nil
+				}
+				return &rspec.LinuxIntelRdt{
+					ClosID: rdt.ResctrlPrefix + className,
+				}, nil
+			},
+		),
+	)
+
+	if err := specgen.AdjustLabels(adjust.GetLabels()); err != nil {
+		return volumes, err
+	}
+	if err := specgen.AdjustAnnotations(adjust.GetAnnotations()); err != nil {
+		return volumes, err
+	}
+	specgen.AdjustEnv(adjust.GetEnv())
+	specgen.AdjustHooks(adjust.GetHooks())
+	specgen.AdjustDevices(adjust.GetLinux().GetDevices())
+	specgen.AdjustCgroupsPath(adjust.GetLinux().GetCgroupsPath())
+
+	resources := adjust.GetLinux().GetResources()
+	if err := specgen.AdjustResources(resources); err != nil {
+		return volumes, err
+	}
+	if err := specgen.AdjustBlockIOClass(resources.GetBlockioClass().Get()); err != nil {
+		return volumes, err
+	}
+	if err := specgen.AdjustRdtClass(resources.GetRdtClass().Get()); err != nil {
+		return volumes, err
+	}
+
+	mountPrefix := s.config.RuntimeConfig.BindMountPrefix
+	rejectIfAbsent := s.config.AbsentMountSourcesToReject
+	v, err := adjustMounts(ctx, ctr, adjust, volumes, mountLabel, maybeRelabel, skipRelabel, mountPrefix, rejectIfAbsent)
+	if err != nil {
+		return volumes, err
+	}
+
+	if v != nil {
+		volumes = v
+	}
+
+	return volumes, nil
+}
+
+func adjustMounts(ctx context.Context, ctr ctrfactory.Container, a *nri.ContainerAdjustment, containerVolumes []oci.ContainerVolume, mountLabel string, maybeRelabel, skipRelabel bool, bindMountPrefix string, absentMountSourcesToReject []string) ([]oci.ContainerVolume, error) {
+	if a == nil || len(a.Mounts) == 0 {
+		return nil, nil
+	}
+
+	// TODO: should we restrict the mount type/option combo we allow plugins to adjust ?
+	mntInfo, err := mount.GetMounts()
+	if err != nil {
+		return nil, err
+	}
+
+	specgen := ctr.Spec()
+	mounts := specgen.Mounts()
+	specgen.ClearMounts()
+
+	mIndex := map[string]int{}
+	for idx, m := range mounts {
+		mIndex[m.Destination] = idx
+	}
+	vIndex := map[string]int{}
+	for idx, v := range containerVolumes {
+		vIndex[v.ContainerPath] = idx
+	}
+
+	for _, m := range a.Mounts {
+		var (
+			src      string
+			bind     bool
+			rbind    bool
+			readOnly bool
+			relabel  bool
+			err      error
+		)
+
+		if m.Source == "" || m.Destination == "" || m.Type == "" {
+			return nil, fmt.Errorf("invalid mount with empty path or type")
+		}
+
+		// TODO: do we want/need to allow mount removals ?
+
+		// delete mount and corresponding volume
+		if m.Destination[0] == '-' && m.Source == "" {
+			dst := m.Destination[1:]
+			mounts[mIndex[dst]] = rspec.Mount{Destination: ""}
+			delete(mIndex, dst)
+			containerVolumes[mIndex[dst]] = oci.ContainerVolume{ContainerPath: ""}
+			delete(vIndex, dst)
+			continue
+		}
+
+		propagation := mountPrivate
+		options := []string{}
+		for _, o := range m.Options {
+			switch o {
+			case "bind":
+				options = append(options, o)
+				bind = true
+			case "rbind":
+				options = append(options, o)
+				rbind = true
+			case mountPrivate, mountShared, mountSlave:
+				options = append(options, o)
+				propagation = o
+			case nri.SELinuxRelabel:
+				relabel = true
+			default:
+				options = append(options, o)
+			}
+		}
+
+		if bind {
+			src, err = resolveMountSource(m.Source, bindMountPrefix, absentMountSourcesToReject)
+			if err != nil {
+				return nil, err
+			}
+			if rbind {
+				if err := setRootPropagation(src, propagation, specgen, mntInfo); err != nil {
+					return nil, err
+				}
+			}
+			// TODO: do we want/need to emulate CRI's SelinuxRelabel like this ?
+			if relabel {
+				if skipRelabel {
+					logrus.Debugf("Skipping relabel for %s because of super privileged container (type: spc_t)", src)
+				} else if err := securityLabel(src, mountLabel, false, maybeRelabel); err != nil {
+					return nil, err
+				}
+			}
+		} else {
+			src = m.Source
+		}
+
+		// TODO: do we always need to generate a corresponding ContainerVolume ?
+
+		// update or inject new mount and corresponding container volume
+		mnt := rspec.Mount{
+			Source:      src,
+			Destination: m.Destination,
+			Type:        m.Type,
+			Options:     options,
+		}
+		if mIdx, ok := mIndex[m.Destination]; ok {
+			mounts[mIdx] = mnt
+			log.Infof(ctx, "NRI adjusted mount %+v", mnt)
+		} else {
+			mounts = append(mounts, mnt)
+			mIndex[mnt.Destination] = len(mounts) - 1
+			log.Infof(ctx, "NRI injected mount %+v", mnt)
+		}
+
+		vol := oci.ContainerVolume{
+			HostPath:      src,
+			ContainerPath: m.Destination,
+			Readonly:      readOnly,
+		}
+		if vIdx, ok := vIndex[m.Destination]; ok {
+			containerVolumes[vIdx] = vol
+			log.Infof(ctx, "NRI adjusted volume: %+v", vol)
+		} else {
+			containerVolumes = append(containerVolumes, vol)
+			vIndex[m.Destination] = len(containerVolumes) - 1
+			log.Infof(ctx, "NRI injected volume %+v", vol)
+		}
+	}
+
+	// reinsert updated mounts sans the ones marked as deleted
+	sort.Sort(orderedMounts(mounts))
+	for _, m := range mounts {
+		if m.Destination != "" {
+			specgen.AddMount(m)
+		}
+	}
+
+	// clean deleted volumes, update the volume annotation
+	volumes := []oci.ContainerVolume{}
+	for _, v := range containerVolumes {
+		if v.ContainerPath != "" {
+			volumes = append(volumes, v)
+		}
+	}
+	containerVolumes = volumes
+	if err := ctr.SpecSetVolumesAnnotation(containerVolumes); err != nil {
+		return nil, fmt.Errorf("failed to update volumes annotation: %v", err)
+	}
+
+	return containerVolumes, nil
 }

@@ -56,6 +56,12 @@ func (s *Server) stopPodSandbox(ctx context.Context, sb *sandbox.Sandbox) error 
 					if err := s.StopContainerAndWait(ctx, c, int64(10)); err != nil {
 						return fmt.Errorf("failed to stop container for pod sandbox %s: %v", sb.ID(), err)
 					}
+					if s.nri.isEnabled() {
+						if err := s.nri.StopContainer(ctx, c, sb); err != nil {
+							return fmt.Errorf("NRI failed to stop container %s for pod sandox %s: %v",
+								c.ID(), sb.ID(), err)
+						}
+					}
 					if err := s.StorageRuntimeServer().StopContainer(c.ID()); err != nil && !errors.Is(err, storage.ErrContainerUnknown) {
 						// assume container already umounted
 						log.Warnf(ctx, "Failed to stop container %s in pod sandbox %s: %v", c.Name(), sb.ID(), err)

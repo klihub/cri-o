@@ -70,6 +70,12 @@ func (s *Server) removePodSandbox(ctx context.Context, sb *sandbox.Sandbox) erro
 		return fmt.Errorf("failed to delete pod sandbox %s from index: %v", sb.ID(), err)
 	}
 
+	if s.nri.isEnabled() {
+		if err := s.nri.RemovePodSandbox(ctx, sb); err != nil {
+			log.Warnf(ctx, "NRI pod removal failed for %q: %v", sb.ID(), err)
+		}
+	}
+
 	log.Infof(ctx, "Removed pod sandbox: %s", sb.ID())
 	return nil
 }
@@ -78,6 +84,16 @@ func (s *Server) removeContainerInPod(ctx context.Context, sb *sandbox.Sandbox, 
 	if !sb.Stopped() {
 		if err := s.ContainerServer.StopContainer(ctx, c, int64(10)); err != nil {
 			return errors.Errorf("failed to stop container for removal")
+		}
+		if s.nri.isEnabled() {
+			if err := s.nri.StopContainer(ctx, c, sb); err != nil {
+				return errors.Errorf("NRI container stop failed for container %s of pod %s: %v",
+					c.ID(), sb.ID(), err)
+			}
+			if err := s.nri.RemoveContainer(ctx, c); err != nil {
+				log.Warnf(ctx, "NRI container removal failed for container %s of pod %s: %v",
+					c.ID(), sb.ID(), err)
+			}
 		}
 	}
 
