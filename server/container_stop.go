@@ -35,6 +35,12 @@ func (s *Server) StopContainer(ctx context.Context, req *types.StopContainerRequ
 		return err
 	}
 
+	if s.nri.isEnabled() {
+		if err = s.nri.StopContainer(ctx, c, sandbox); err != nil {
+			return fmt.Errorf("NRI stop failed for container %q: %v", c.ID(), err)
+		}
+	}
+
 	log.Infof(ctx, "Stopped container %s: %s", c.ID(), c.Description())
 	return nil
 }

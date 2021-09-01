@@ -1,6 +1,8 @@
 package server
 
 import (
+	"fmt"
+
 	"github.com/cri-o/cri-o/internal/log"
 	"github.com/cri-o/cri-o/server/cri/types"
 	"golang.org/x/net/context"
@@ -16,6 +18,12 @@ func (s *Server) RemoveContainer(ctx context.Context, req *types.RemoveContainer
 	c, err := s.GetContainerFromShortID(req.ContainerID)
 	if err != nil {
 		return status.Errorf(codes.NotFound, "could not find container %q: %v", req.ContainerID, err)
+	}
+
+	if s.nri.isEnabled() {
+		if err := s.nri.RemoveContainer(ctx, c); err != nil {
+			return fmt.Errorf("NRI removal failed for container %q: %v", c.ID(), err)
+		}
 	}
 
 	if _, err := s.ContainerServer.Remove(ctx, req.ContainerID, true); err != nil {
