@@ -34,6 +34,8 @@ import (
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 
 	"github.com/intel/goresctrl/pkg/blockio"
+
+	nrigen "github.com/containerd/nri/v2alpha1/pkg/runtime-tools/generate"
 )
 
 const (
@@ -824,6 +826,92 @@ func (s *Server) createSandboxContainer(ctx context.Context, ctr ctrfactory.Cont
 
 	if os.Getenv(rootlessEnvName) != "" {
 		makeOCIConfigurationRootless(specgen)
+	}
+
+	if s.nri.isEnabled() {
+		defer func() {
+			if retErr != nil {
+				err := s.nri.RollbackCreateContainer(ctx, specgen.Config, ociContainer, sb)
+				if err != nil {
+					log.Warnf(ctx, "NRI creation rollback failed for container %q: %v",
+						containerID, err)
+				}
+			}
+		}()
+
+		adjust, err := s.nri.CreateContainer(ctx, specgen.Config, ociContainer, sb)
+		if err != nil {
+			return nil, err
+		}
+
+		filter := func(a map[string]string) error {
+			return s.FilterDisallowedAnnotations(sb.Annotations(), a, sb.RuntimeHandler())
+		}
+
+		wrapgen := nrigen.SpecGenerator(ctr.Spec(),
+			nrigen.WithLabelFilter(
+				func(values map[string]string) (map[string]string, error) {
+					if err := filter(values); err != nil {
+						return nil, fmt.Errorf("invalid labels in NRI adjustment: %w", err)
+					}
+					return values, nil
+				},
+			),
+			nrigen.WithAnnotationFilter(
+				func(values map[string]string) (map[string]string, error) {
+					if err := filter(values); err != nil {
+						return nil, fmt.Errorf("invalid annotations in NRI adjustment: %w", err)
+					}
+					return values, nil
+				},
+			),
+			nrigen.WithResourceChecker(
+				func(r *rspec.LinuxResources) error {
+					if r == nil {
+						return nil
+					}
+					if mem := r.Memory; mem != nil {
+						if mem.Limit != nil {
+							if err := cgmgr.VerifyMemoryIsEnough(*mem.Limit); err != nil {
+								return err
+							}
+						}
+						if !node.CgroupHasMemorySwap() {
+							mem.Swap = nil
+						}
+					}
+					if !node.CgroupHasHugetlb() {
+						r.HugepageLimits = nil
+					}
+					return nil
+				},
+			),
+			nrigen.WithBlockIOResolver(
+				func(className string) (*rspec.LinuxBlockIO, error) {
+					if !s.Config().BlockIO().Enabled() || className == "" {
+						return nil, nil
+					}
+					if blockIO, err := blockio.OciLinuxBlockIO(className); err == nil {
+						return blockIO, nil
+					}
+					return nil, nil
+				},
+			),
+			nrigen.WithRdtResolver(
+				func(className string) (*rspec.LinuxIntelRdt, error) {
+					if className == "" {
+						return nil, nil
+					}
+					return &rspec.LinuxIntelRdt{
+						ClosID: rdt.ResctrlPrefix + className,
+					}, nil
+				},
+			),
+		)
+
+		if err := wrapgen.Adjust(adjust); err != nil {
+			return nil, fmt.Errorf("failed to adjust container %s: %w", ctr.ID(), err)
+		}
 	}
 
 	saveOptions := generate.ExportOptions{}

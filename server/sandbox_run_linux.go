@@ -668,6 +668,13 @@ func (s *Server) runPodSandbox(ctx context.Context, req *types.RunPodSandboxRequ
 	if err := s.addSandbox(sb); err != nil {
 		return nil, err
 	}
+
+	if s.nri.isEnabled() {
+		if err := s.nri.RunPodSandbox(ctx, sb); err != nil {
+			return nil, err
+		}
+	}
+
 	resourceCleaner.Add(ctx, "runSandbox: removing pod sandbox "+sbox.ID(), func() error {
 		if err := s.removeSandbox(sbox.ID()); err != nil {
 			return fmt.Errorf("could not remove pod sandbox: %w", err)
