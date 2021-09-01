@@ -73,6 +73,9 @@ type Server struct {
 	pullOperationsLock sync.Mutex
 
 	resourceStore *resourcestore.ResourceStore
+
+	// NRI runtime interface
+	nri *nriRuntime
 }
 
 // pullArguments are used to identify a pullOperation via an input image name and
@@ -510,6 +513,15 @@ func New(
 		}
 	} else {
 		logrus.Debug("Metrics are disabled")
+	}
+
+	// Set up our NRI adaptation.
+	vInfo, err := version.Get(false)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get version: %w", err)
+	}
+	if err := s.setupNRI(containerName, vInfo.Version); err != nil {
+		return nil, err
 	}
 
 	return s, nil
