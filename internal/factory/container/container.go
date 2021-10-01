@@ -97,6 +97,9 @@ type Container interface {
 	// SpecAddAnnotations adds annotations to the spec.
 	SpecAddAnnotations(ctx context.Context, sandbox *sandbox.Sandbox, containerVolume []oci.ContainerVolume, mountPoint, configStopSignal string, imageResult *storage.ImageResult, isSystemd, systemdHasCollectMode bool) error
 
+	// SpecSetVolumesAnnotation sets or updates the spec annotation for container volumes.
+	SpecSetVolumesAnnotation(containerVolumes []oci.ContainerVolume) error
+
 	// SpecAddDevices adds devices from the server config, and container CRI config
 	SpecAddDevices([]device.Device, []device.Device, bool, bool) error
 
@@ -227,11 +230,9 @@ func (c *container) SpecAddAnnotations(ctx context.Context, sb *sandbox.Sandbox,
 	}
 	c.spec.AddAnnotation(annotations.Labels, string(labelsJSON))
 
-	volumesJSON, err := json.Marshal(containerVolumes)
-	if err != nil {
+	if err := c.SpecSetVolumesAnnotation(containerVolumes); err != nil {
 		return err
 	}
-	c.spec.AddAnnotation(annotations.Volumes, string(volumesJSON))
 
 	kubeAnnotationsJSON, err := json.Marshal(kubeAnnotations)
 	if err != nil {
@@ -267,6 +268,16 @@ func (c *container) SpecAddAnnotations(ctx context.Context, sb *sandbox.Sandbox,
 		c.spec.AddAnnotation("org.opencontainers.image.stopSignal", configStopSignal)
 	}
 
+	return nil
+}
+
+// SpecSetVolumesAnnotation sets or updates the spec annotation for container volumes.
+func (c *container) SpecSetVolumesAnnotation(containerVolumes []oci.ContainerVolume) error {
+	volumesJSON, err := json.Marshal(containerVolumes)
+	if err != nil {
+		return err
+	}
+	c.spec.AddAnnotation(annotations.Volumes, string(volumesJSON))
 	return nil
 }
 
