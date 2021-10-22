@@ -13,7 +13,8 @@ require (
 	github.com/containerd/containerd v1.6.9
 	github.com/containerd/cri-containerd v1.19.0
 	github.com/containerd/fifo v1.0.0
-	github.com/containerd/ttrpc v1.1.0
+	github.com/containerd/nri v0.2.0
+	github.com/containerd/ttrpc v1.1.1-0.20220420014843-944ef4a40df3
 	github.com/containerd/typeurl v1.0.2
 	github.com/containernetworking/cni v1.1.2
 	github.com/containernetworking/plugins v1.1.1
@@ -53,6 +54,7 @@ require (
 	github.com/opencontainers/runtime-spec v1.0.3-0.20220825212826-86290f6a00fb
 	github.com/opencontainers/runtime-tools v0.9.1-0.20221014010322-58c91d646d86
 	github.com/opencontainers/selinux v1.10.2
+	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.14.0
 	github.com/psampaz/go-mod-outdated v0.8.0
 	github.com/seccomp/libseccomp-golang v0.10.0
@@ -75,7 +77,7 @@ require (
 	k8s.io/api v0.25.0
 	k8s.io/apimachinery v0.25.0
 	k8s.io/client-go v1.5.2
-	k8s.io/cri-api v0.25.0
+	k8s.io/cri-api v0.25.3
 	k8s.io/klog/v2 v2.80.1
 	k8s.io/kubernetes v1.24.1
 	k8s.io/release v0.14.0
@@ -289,7 +291,6 @@ require (
 	github.com/pelletier/go-toml/v2 v2.0.1 // indirect
 	github.com/peterbourgon/diskv v2.0.1+incompatible // indirect
 	github.com/pkg/diff v0.0.0-20210226163009-20ebb0f2a09e // indirect
-	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pkg/sftp v1.13.5 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/power-devops/perfstat v0.0.0-20210106213030-5aafc221ea8c // indirect
@@ -417,6 +418,7 @@ replace (
 	// TODO: Remove me when Podman uses a pinned runc version:
 	// https://github.com/containers/podman/blob/74aa681e59352257eb5f25f089dffa66d6345a3a/go.mod#L78
 	github.com/opencontainers/runc => github.com/opencontainers/runc v1.1.1-0.20220617142545-8b9452f75cbc
+	github.com/opencontainers/runtime-tools => github.com/opencontainers/runtime-tools v0.0.0-20221026201742-946c877fa809
 	github.com/u-root/u-root => github.com/u-root/u-root v0.8.1-0.20220307150114-d511ded1d944
 	k8s.io/api => k8s.io/kubernetes/staging/src/k8s.io/api v0.0.0-20220823173643-a866cbe2e5bb
 	k8s.io/apiextensions-apiserver => k8s.io/kubernetes/staging/src/k8s.io/apiextensions-apiserver v0.0.0-20220823173643-a866cbe2e5bb
