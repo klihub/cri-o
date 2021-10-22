@@ -27,6 +27,7 @@ import (
 	"github.com/cri-o/cri-o/internal/config/conmonmgr"
 	"github.com/cri-o/cri-o/internal/config/device"
 	"github.com/cri-o/cri-o/internal/config/node"
+	"github.com/cri-o/cri-o/internal/config/nri"
 	"github.com/cri-o/cri-o/internal/config/nsmgr"
 	"github.com/cri-o/cri-o/internal/config/rdt"
 	"github.com/cri-o/cri-o/internal/config/seccomp"
@@ -77,6 +78,7 @@ type Config struct {
 	MetricsConfig
 	TracingConfig
 	StatsConfig
+	NRI           nri.Config
 	SystemContext *types.SystemContext
 }
 
@@ -571,6 +573,7 @@ type tomlConfig struct {
 		Metrics struct{ MetricsConfig } `toml:"metrics"`
 		Tracing struct{ TracingConfig } `toml:"tracing"`
 		Stats   struct{ StatsConfig }   `toml:"stats"`
+		NRI     struct{ nri.Config }    `toml:"nri"`
 	} `toml:"crio"`
 }
 
@@ -589,6 +592,7 @@ func (t *tomlConfig) toConfig(c *Config) {
 	c.MetricsConfig = t.Crio.Metrics.MetricsConfig
 	c.TracingConfig = t.Crio.Tracing.TracingConfig
 	c.StatsConfig = t.Crio.Stats.StatsConfig
+	c.NRI = t.Crio.NRI.Config
 	t.SetSystemContext(c)
 }
 
@@ -601,6 +605,7 @@ func (t *tomlConfig) fromConfig(c *Config) {
 	t.Crio.Metrics.MetricsConfig = c.MetricsConfig
 	t.Crio.Tracing.TracingConfig = c.TracingConfig
 	t.Crio.Stats.StatsConfig = c.StatsConfig
+	t.Crio.NRI.Config = c.NRI
 }
 
 // UpdateFromFile populates the Config from the TOML-encoded file at the given
@@ -832,6 +837,7 @@ func DefaultConfig() (*Config, error) {
 			TracingSamplingRatePerMillion: 0,
 			EnableTracing:                 false,
 		},
+		NRI: nri.New(),
 	}, nil
 }
 
@@ -872,6 +878,10 @@ func (c *Config) Validate(onExecution bool) error {
 
 	if !c.SELinux {
 		selinux.SetDisabled()
+	}
+
+	if err := c.NRI.Validate(onExecution); err != nil {
+		return errors.Wrap(err, "validating NRI config")
 	}
 
 	return nil

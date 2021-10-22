@@ -45,6 +45,7 @@ h
 --device-ownership-from-security-context
 --drop-infra-ctr
 --enable-metrics
+--enable-nri
 --enable-profile-unix-socket
 --enable-tracing
 --gid-mappings
@@ -74,6 +75,9 @@ h
 --minimum-mappable-uid
 --namespaces-dir
 --no-pivot
+--nri-config-file
+--nri-plugin-dir
+--nri-socket-path
 --pause-command
 --pause-image
 --pause-image-auth-file
