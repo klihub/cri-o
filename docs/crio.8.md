@@ -41,6 +41,7 @@ crio
 [--device-ownership-from-security-context]
 [--drop-infra-ctr]
 [--enable-metrics]
+[--enable-nri]
 [--enable-profile-unix-socket]
 [--enable-tracing]
 [--gid-mappings]=[value]
@@ -69,6 +70,9 @@ crio
 [--metrics-socket]=[value]
 [--namespaces-dir]=[value]
 [--no-pivot]
+[--nri-config-file]=[value]
+[--nri-plugin-dir]=[value]
+[--nri-socket-path]=[value]
 [--pause-command]=[value]
 [--pause-image-auth-file]=[value]
 [--pause-image]=[value]
@@ -199,6 +203,8 @@ crio [GLOBAL OPTIONS] command [COMMAND OPTIONS] [ARGUMENTS...]
 
 **--enable-metrics**: Enable metrics endpoint for the server on localhost:9090
 
+**--enable-nri**: Enable NRI (Node Resource Interface) support. (default: false)
+
 **--enable-profile-unix-socket**: Enable pprof profiler on crio unix domain socket
 
 **--enable-tracing**: Enable OpenTelemetry trace data exporting
@@ -286,6 +292,12 @@ crio [GLOBAL OPTIONS] command [COMMAND OPTIONS] [ARGUMENTS...]
 **--namespaces-dir**="": The directory where the state of the managed namespaces gets tracked. Only used when manage-ns-lifecycle is true (default: /var/run)
 
 **--no-pivot**: If true, the runtime will not use `pivot_root`, but instead use `MS_MOVE` (default: false)
+
+**--nri-config-file**="": NRI configuration file to use. (default: "/etc/nri/nri.conf")
+
+**--nri-plugin-dir**="": Directory to scan for pre-installed NRI plugins to start automatically. (default: "/opt/nri/plugins")
+
+**--nri-socket-path**="": Socket to create for externally started NRI plugins to connect to. (default: "/var/run/nri.sock")
 
 **--pause-command**="": Path to the pause executable in the pause image (default: /pause)
 

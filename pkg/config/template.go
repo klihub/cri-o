@@ -44,6 +44,8 @@ func assembleTemplateString(displayAllConfig bool, c *Config) string {
 
 	// [crio.tracing] configuration
 	templateString += crioTemplateString(crioTracingConfig, templateStringCrioTracing, displayAllConfig, crioTemplateConfig)
+	// [crio.nri] configuration
+	templateString += crioTemplateString(crioNRIConfig, templateStringCrioNRI, displayAllConfig, crioTemplateConfig)
 
 	if templateString != "" {
 		templateString = templateStringPrefix + templateStringCrio + templateString
@@ -80,6 +82,7 @@ const (
 	crioNetworkConfig templateGroup = 5
 	crioMetricsConfig templateGroup = 6
 	crioTracingConfig templateGroup = 7
+	crioNRIConfig     templateGroup = 8
 )
 
 type templateConfigValue struct {
@@ -504,6 +507,26 @@ func initCrioTemplateConfig(c *Config) ([]*templateConfigValue, error) {
 			templateString: templateStringCrioTracingTracingSamplingRatePerMillion,
 			group:          crioTracingConfig,
 			isDefaultValue: simpleEqual(dc.TracingSamplingRatePerMillion, c.TracingSamplingRatePerMillion),
+		},
+		{
+			templateString: templateStringCrioNRIEnable,
+			group:          crioNRIConfig,
+			isDefaultValue: simpleEqual(dc.NRI.Enabled, c.NRI.Enabled),
+		},
+		{
+			templateString: templateStringCrioNRIConfigPath,
+			group:          crioNRIConfig,
+			isDefaultValue: simpleEqual(dc.NRI.ConfigPath, c.NRI.ConfigPath),
+		},
+		{
+			templateString: templateStringCrioNRISocketPath,
+			group:          crioNRIConfig,
+			isDefaultValue: simpleEqual(dc.NRI.SocketPath, c.NRI.SocketPath),
+		},
+		{
+			templateString: templateStringCrioNRIPluginDir,
+			group:          crioNRIConfig,
+			isDefaultValue: simpleEqual(dc.NRI.PluginPath, c.NRI.PluginPath),
 		},
 	}
 
@@ -1255,5 +1278,30 @@ tracing_endpoint = "{{ .TracingEndpoint }}"
 
 const templateStringCrioTracingTracingSamplingRatePerMillion = `# Number of samples to collect per million spans.
 tracing_sampling_rate_per_million = {{ .TracingSamplingRatePerMillion }}
+
+`
+
+const templateStringCrioNRI = `# CRI-O NRI configuration.
+[crio.nri]
+
+`
+
+const templateStringCrioNRIEnable = `# Globally enable or disable NRI.
+enable_nri = {{ .NRI.Enabled }}
+
+`
+
+const templateStringCrioNRIConfigPath = `# NRI configuration file to use.
+nri_config_file = "{{ .NRI.ConfigPath }}"
+
+`
+
+const templateStringCrioNRISocketPath = `# NRI socket path to create.
+nri_socket_path = "{{ .NRI.SocketPath }}"
+
+`
+
+const templateStringCrioNRIPluginDir = `# NRI plugin directory to use.
+nri_plugin_dir = "{{ .NRI.PluginPath }}"
 
 `
