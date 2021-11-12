@@ -9,6 +9,7 @@ require (
 	github.com/containerd/cgroups v1.0.2
 	github.com/containerd/containerd v1.5.7
 	github.com/containerd/cri-containerd v1.19.0
+	github.com/containerd/nri v0.1.0
 	github.com/containerd/ttrpc v1.1.0
 	github.com/containerd/typeurl v1.0.2
 	github.com/containernetworking/cni v1.0.1
@@ -79,6 +80,7 @@ require (
 )
 
 replace (
+	github.com/containerd/nri => github.com/klihub/nri v0.0.0-20211110214332-cd66d1454c2f
 	google.golang.org/genproto => google.golang.org/genproto v0.0.0-20200117163144-32f20d992d24
 	k8s.io/api => k8s.io/kubernetes/staging/src/k8s.io/api v0.0.0-20210915213132-8b5a19147530
 	k8s.io/apiextensions-apiserver => k8s.io/kubernetes/staging/src/k8s.io/apiextensions-apiserver v0.0.0-20210915213132-8b5a19147530
