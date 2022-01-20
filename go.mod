@@ -6,6 +6,7 @@ require (
 	github.com/BurntSushi/toml v0.4.1
 	github.com/Microsoft/go-winio v0.5.1
 	github.com/blang/semver v3.5.1+incompatible
+	github.com/container-orchestrated-devices/container-device-interface v0.0.0
 	github.com/containerd/cgroups v1.0.2
 	github.com/containerd/containerd v1.5.8
 	github.com/containerd/cri-containerd v1.19.0
@@ -46,7 +47,7 @@ require (
 	github.com/opencontainers/runc v1.0.3
 	github.com/opencontainers/runtime-spec v1.0.3-0.20210709190330-896175883324
 	github.com/opencontainers/runtime-tools v0.9.1-0.20210326182921-59cdde06764b
-	github.com/opencontainers/selinux v1.9.1
+	github.com/opencontainers/selinux v1.10.0
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.11.0
 	github.com/psampaz/go-mod-outdated v0.8.0
@@ -79,6 +80,7 @@ require (
 )
 
 replace (
+	github.com/container-orchestrated-devices/container-device-interface => github.com/klihub/container-device-interface v0.0.0-20220120113905-55c502dfcddc
 	google.golang.org/genproto => google.golang.org/genproto v0.0.0-20200117163144-32f20d992d24
 	k8s.io/api => k8s.io/kubernetes/staging/src/k8s.io/api v0.0.0-20211207180839-ab69524f795c
 	k8s.io/apiextensions-apiserver => k8s.io/kubernetes/staging/src/k8s.io/apiextensions-apiserver v0.0.0-20211207180839-ab69524f795c

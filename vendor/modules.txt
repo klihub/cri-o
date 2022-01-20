@@ -111,8 +111,10 @@ github.com/cilium/ebpf/internal
 github.com/cilium/ebpf/internal/btf
 github.com/cilium/ebpf/internal/unix
 github.com/cilium/ebpf/link
-# github.com/container-orchestrated-devices/container-device-interface v0.0.0-20210325223243-f99e8b6c10b9
+# github.com/container-orchestrated-devices/container-device-interface v0.0.0 => github.com/klihub/container-device-interface v0.0.0-20220120113905-55c502dfcddc
+## explicit
 github.com/container-orchestrated-devices/container-device-interface/pkg
+github.com/container-orchestrated-devices/container-device-interface/pkg/cdi
 github.com/container-orchestrated-devices/container-device-interface/specs-go
 # github.com/containerd/cgroups v1.0.2
 ## explicit
@@ -819,7 +821,7 @@ github.com/opencontainers/runtime-tools/generate
 github.com/opencontainers/runtime-tools/generate/seccomp
 github.com/opencontainers/runtime-tools/specerror
 github.com/opencontainers/runtime-tools/validate
-# github.com/opencontainers/selinux v1.9.1
+# github.com/opencontainers/selinux v1.10.0
 ## explicit
 github.com/opencontainers/selinux/go-selinux
 github.com/opencontainers/selinux/go-selinux/label
@@ -1664,6 +1666,7 @@ sigs.k8s.io/zeitgeist/internal/github/internal
 sigs.k8s.io/zeitgeist/internal/release/regex
 sigs.k8s.io/zeitgeist/pkg/gitlab
 sigs.k8s.io/zeitgeist/upstreams
+# github.com/container-orchestrated-devices/container-device-interface => github.com/klihub/container-device-interface v0.0.0-20220120113905-55c502dfcddc
 # google.golang.org/genproto => google.golang.org/genproto v0.0.0-20200117163144-32f20d992d24
 # k8s.io/api => k8s.io/kubernetes/staging/src/k8s.io/api v0.0.0-20211207180839-ab69524f795c
 # k8s.io/apiextensions-apiserver => k8s.io/kubernetes/staging/src/k8s.io/apiextensions-apiserver v0.0.0-20211207180839-ab69524f795c
