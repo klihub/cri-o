@@ -35,6 +35,8 @@ import (
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 
 	"github.com/intel/goresctrl/pkg/blockio"
+
+	"github.com/container-orchestrated-devices/container-device-interface/pkg/cdi"
 )
 
 // createContainerPlatform performs platform dependent intermediate steps before calling the container's oci.Runtime().CreateContainer()
@@ -320,6 +322,30 @@ func (s *Server) createSandboxContainer(ctx context.Context, ctr ctrIface.Contai
 	annotationDevices, err := device.DevicesFromAnnotation(sb.Annotations()[crioann.DevicesAnnotation])
 	if err != nil {
 		return nil, err
+	}
+
+	cdiDevices, err := cdi.ParseAnnotations(ctr.Config().GetAnnotations())
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to parse CDI device annotations")
+	}
+
+	if cdiDevices == nil {
+		//
+		// XXX TODO: temporary kludge
+		//   This is just a temporary hack to allow testing without a K8s
+		//   device plugin, by putting per-container CDI annotations on
+		//   the pod, so we can slam them into the PodSpec by hand...
+		//
+		cdiDevices, err = cdi.ParsePodAnnotations(ctr.Config().Metadata.Name, sb.Annotations())
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to parse CDI device annotations")
+		}
+	}
+
+	if cdiDevices != nil {
+		log.Infof(ctx, "CDI-annotated devices: %q", strings.Join(cdiDevices, ","))
+	} else {
+		log.Infof(ctx, "No CDI-annotated devices")
 	}
 
 	if err := ctr.SpecAddDevices(configuredDevices, annotationDevices, privilegedWithoutHostDevices, s.config.DeviceOwnershipFromSecurityContext); err != nil {
@@ -823,6 +849,20 @@ func (s *Server) createSandboxContainer(ctx context.Context, ctr ctrIface.Contai
 	saveOptions := generate.ExportOptions{}
 	if err := specgen.SaveToFile(filepath.Join(containerInfo.Dir, "config.json"), saveOptions); err != nil {
 		return nil, err
+	}
+
+	if cdiDevices != nil {
+		registry := cdi.GetRegistry()
+		if err = registry.Refresh(); err != nil {
+			log.Warnf(ctx, "CDI registry refresh failed: %v", err)
+		}
+		unresolved, err := registry.InjectDevices(specgen.Config, cdiDevices...)
+		if unresolved != nil {
+			log.Warnf(ctx, "CDI resolution failed for %q", strings.Join(unresolved, ","))
+		}
+		if err != nil {
+			return nil, errors.Wrap(err, "CDI device injection failed")
+		}
 	}
 
 	if err := specgen.SaveToFile(filepath.Join(containerInfo.RunDir, "config.json"), saveOptions); err != nil {
