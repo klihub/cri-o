@@ -63,7 +63,7 @@ require (
 	go.opentelemetry.io/otel/sdk v1.2.0
 	golang.org/x/net v0.0.0-20211005001312-d4b1ae081e3b
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
-	golang.org/x/sys v0.0.0-20211004093028-2c5d950f24ef
+	golang.org/x/sys v0.0.0-20211116061358-0a5406a5449c
 	google.golang.org/grpc v1.42.0
 	k8s.io/api v0.22.2
 	k8s.io/apimachinery v0.22.2
@@ -80,7 +80,8 @@ require (
 )
 
 replace (
-	github.com/container-orchestrated-devices/container-device-interface => github.com/klihub/container-device-interface v0.0.0-20220120113905-55c502dfcddc
+	github.com/container-orchestrated-devices/container-device-interface => github.com/klihub/container-device-interface v0.0.0-20220122011645-df1d4c1bd2c0
+	//github.com/container-orchestrated-devices/container-device-interface => ../container-device-interface
 	google.golang.org/genproto => google.golang.org/genproto v0.0.0-20200117163144-32f20d992d24
 	k8s.io/api => k8s.io/kubernetes/staging/src/k8s.io/api v0.0.0-20211207180839-ab69524f795c
 	k8s.io/apiextensions-apiserver => k8s.io/kubernetes/staging/src/k8s.io/apiextensions-apiserver v0.0.0-20211207180839-ab69524f795c

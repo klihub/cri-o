@@ -31,8 +31,8 @@ const (
 // injection request for the given devices. Upon any error a non-nil error
 // is returned and annotations are left intact. By convention plugin should
 // be in the format of "vendor.device-type".
-func AnnotateInjection(annotations map[string]string, plugin string, devices []string) (map[string]string, error) {
-	key, err := AnnotationKey(plugin)
+func AnnotateInjection(annotations map[string]string, plugin string, deviceID string, devices []string) (map[string]string, error) {
+	key, err := AnnotationKey(plugin, deviceID)
 	if err != nil {
 		return annotations, errors.Wrap(err, "CDI annotation failed")
 	}
@@ -89,39 +89,46 @@ func ParseAnnotations(annotations map[string]string) ([]string, error) {
 	return devices, nil
 }
 
-// AnnotationKey returns the CDI device annotation key for the plugin.
-// By convention plugin should be in the format of "vendor.device-type".
-func AnnotationKey(plugin string) (string, error) {
+// AnnotationKey returns a unique annotation key for a K8s device plugin.
+// plugin should be in the format of "vendor.device-type". deviceID is the
+// deviceID passed to the device plugin for the allocation.
+func AnnotationKey(plugin, deviceID string) (string, error) {
 	const maxNameLen = 63
 
 	if plugin == "" {
 		return "", errors.New("invalid plugin name, empty")
 	}
-	if len(plugin) > maxNameLen {
-		return "", errors.Errorf("invalid plugin name %q, too long", plugin)
+	if deviceID == "" {
+		return "", errors.New("invalid deviceID, empty")
 	}
 
-	if c := rune(plugin[0]); !isAlphaNumeric(c) {
-		return "", errors.Errorf("invalid plugin name %q, first '%c' should be alphanumeric",
-			plugin, c)
+	name := plugin + "_" + deviceID
+
+	if len(name) > maxNameLen {
+		return "", errors.Errorf("invalid plugin+deviceID %q, too long", name)
 	}
-	if len(plugin) > 2 {
-		for _, c := range plugin[1 : len(plugin)-1] {
+
+	if c := rune(name[0]); !isAlphaNumeric(c) {
+		return "", errors.Errorf("invalid name %q, first '%c' should be alphanumeric",
+			name, c)
+	}
+	if len(name) > 2 {
+		for _, c := range name[1 : len(name)-1] {
 			switch {
 			case isAlphaNumeric(c):
 			case c == '_' || c == '-' || c == '.':
 			default:
-				return "", errors.Errorf("invalid plugin name %q, invalid charcter '%c'",
-					plugin, c)
+				return "", errors.Errorf("invalid name %q, invalid charcter '%c'",
+					name, c)
 			}
 		}
 	}
-	if c := rune(plugin[len(plugin)-1]); !isAlphaNumeric(c) {
-		return "", errors.Errorf("invalid plugin name %q, last '%c' should be alphanumeric",
-			plugin, c)
+	if c := rune(name[len(name)-1]); !isAlphaNumeric(c) {
+		return "", errors.Errorf("invalid name %q, last '%c' should be alphanumeric",
+			name, c)
 	}
 
-	return AnnotationPrefix + plugin, nil
+	return AnnotationPrefix + name, nil
 }
 
 // AnnotationValue returns an annotation value for the given devices.

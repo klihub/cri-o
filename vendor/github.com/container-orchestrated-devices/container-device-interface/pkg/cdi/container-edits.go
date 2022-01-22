@@ -27,6 +27,8 @@ import (
 	"github.com/container-orchestrated-devices/container-device-interface/specs-go"
 	oci "github.com/opencontainers/runtime-spec/specs-go"
 	ocigen "github.com/opencontainers/runtime-tools/generate"
+
+	runc "github.com/opencontainers/runc/libcontainer/devices"
 )
 
 const (
@@ -81,15 +83,44 @@ func (e *ContainerEdits) Apply(spec *oci.Spec) error {
 	if len(e.Env) > 0 {
 		specgen.AddMultipleProcessEnv(e.Env)
 	}
+
 	for _, d := range e.DeviceNodes {
-		specgen.RemoveDevice(d.Path)
-		specgen.AddDevice(d.ToOCI())
-		specgen.AddLinuxResourcesDevice(true, d.Type, &d.Major, &d.Minor, d.Permissions)
+		dev := d.ToOCI()
+		if err := fillMissingInfo(&dev); err != nil {
+			return err
+		}
+
+		if dev.UID == nil && spec.Process != nil {
+			if uid := spec.Process.User.UID; uid > 0 {
+				dev.UID = &uid
+			}
+		}
+		if dev.GID == nil && spec.Process != nil {
+			if gid := spec.Process.User.GID; gid > 0 {
+				dev.GID = &gid
+			}
+		}
+
+		specgen.RemoveDevice(dev.Path)
+		specgen.AddDevice(dev)
+
+		if dev.Type == "b" || dev.Type == "c" {
+			access := d.Permissions
+			if access == "" {
+				access = "rwm"
+			}
+			specgen.AddLinuxResourcesDevice(true, dev.Type, &dev.Major, &dev.Minor, access)
+		}
 	}
-	for _, m := range e.OrderedMounts() {
-		specgen.RemoveMount(m.ContainerPath)
-		specgen.AddMount(m.ToOCI())
+
+	if len(e.Mounts) > 0 {
+		for _, m := range e.Mounts {
+			specgen.RemoveMount(m.ContainerPath)
+			specgen.AddMount(m.ToOCI())
+		}
+		sortMounts(&specgen)
 	}
+
 	for _, h := range e.Hooks {
 		switch h.HookName {
 		case PrestartHook:
@@ -144,8 +175,8 @@ func (e *ContainerEdits) Validate() error {
 	return nil
 }
 
-// Append other another edits into this one. Returns newly allocated
-// edits if called with a nil receiver (and non-nil edits to append).
+// Append other edits into this one. If called with a nil receiver,
+// allocates and returns newly allocated edits.
 func (e *ContainerEdits) Append(o *ContainerEdits) *ContainerEdits {
 	if o == nil || o.ContainerEdits == nil {
 		return e
@@ -163,17 +194,6 @@ func (e *ContainerEdits) Append(o *ContainerEdits) *ContainerEdits {
 	e.Mounts = append(e.Mounts, o.Mounts...)
 
 	return e
-}
-
-// OrderedMounts returns the mounts from this edit in sorted order.
-func (e *ContainerEdits) OrderedMounts() []*specs.Mount {
-	if e == nil || e.ContainerEdits == nil || len(e.Mounts) == 0 {
-		return nil
-	}
-	mounts := make([]*specs.Mount, len(e.Mounts))
-	copy(mounts, e.Mounts)
-	sort.Sort(orderedMounts(mounts))
-	return mounts
 }
 
 // isEmpty returns true if these edits are empty. This is valid in a
@@ -202,10 +222,18 @@ type DeviceNode struct {
 
 // Validate a CDI Spec DeviceNode.
 func (d *DeviceNode) Validate() error {
+	validTypes := map[string]struct{}{
+		"":  {},
+		"b": {},
+		"c": {},
+		"u": {},
+		"p": {},
+	}
+
 	if d.Path == "" {
 		return errors.New("invalid (empty) device path")
 	}
-	if d.Type != "" && d.Type != "b" && d.Type != "c" {
+	if _, ok := validTypes[d.Type]; !ok {
 		return errors.Errorf("device %q: invalid type %q", d.Path, d.Type)
 	}
 	for _, bit := range d.Permissions {
@@ -252,11 +280,52 @@ func (m *Mount) Validate() error {
 	return nil
 }
 
-// orderedMounts defines how to sort a []*Mount slice.
+// Ensure OCI Spec hooks are not nil so we can add hooks.
+func ensureOCIHooks(spec *oci.Spec) {
+	if spec.Hooks == nil {
+		spec.Hooks = &oci.Hooks{}
+	}
+}
+
+// fillMissingInfo fills in missing mandatory attributes from the host device.
+func fillMissingInfo(dev *oci.LinuxDevice) error {
+	if dev.Type != "" && (dev.Major != 0 || dev.Type == "p") {
+		return nil
+	}
+	hostDev, err := runc.DeviceFromPath(dev.Path, "rwm")
+	if err != nil {
+		return errors.Wrapf(err, "failed to stat CDI host device %q", dev.Path)
+	}
+
+	if dev.Type == "" {
+		dev.Type = string(hostDev.Type)
+	} else {
+		if dev.Type != string(hostDev.Type) {
+			return errors.Errorf("CDI device %q, host type mismatch (%s, %s)",
+				dev.Path, dev.Type, string(hostDev.Type))
+		}
+	}
+	if dev.Major == 0 && dev.Type != "p" {
+		dev.Major = hostDev.Major
+		dev.Minor = hostDev.Minor
+	}
+
+	return nil
+}
+
+// sortMounts sorts the mounts in the given OCI Spec.
+func sortMounts(specgen *ocigen.Generator) {
+	mounts := specgen.Mounts()
+	specgen.ClearMounts()
+	sort.Sort(orderedMounts(mounts))
+	specgen.Config.Mounts = mounts
+}
+
+// orderedMounts defines how to sort an OCI Spec Mount slice.
 // This is the almost the same implementation sa used by CRI-O and Docker,
 // with a minor tweak for stable sorting order (easier to test):
 //   https://github.com/moby/moby/blob/17.05.x/daemon/volumes.go#L26
-type orderedMounts []*specs.Mount
+type orderedMounts []oci.Mount
 
 // Len returns the number of mounts. Used in sorting.
 func (m orderedMounts) Len() int {
@@ -274,7 +343,7 @@ func (m orderedMounts) Less(i, j int) bool {
 	if jp < ip {
 		return false
 	}
-	return m[i].ContainerPath < m[j].ContainerPath
+	return m[i].Destination < m[j].Destination
 }
 
 // Swap swaps two items in an array of mounts. Used in sorting
@@ -284,12 +353,5 @@ func (m orderedMounts) Swap(i, j int) {
 
 // parts returns the number of parts in the destination of a mount. Used in sorting.
 func (m orderedMounts) parts(i int) int {
-	return strings.Count(filepath.Clean(m[i].ContainerPath), string(os.PathSeparator))
-}
-
-// Ensure OCI Spec hooks are not nil so we can add hooks.
-func ensureOCIHooks(spec *oci.Spec) {
-	if spec.Hooks == nil {
-		spec.Hooks = &oci.Hooks{}
-	}
+	return strings.Count(filepath.Clean(m[i].Destination), string(os.PathSeparator))
 }
