@@ -313,6 +313,14 @@ testunit-bin:
 			--gcflags '-N' -c -o ${TESTBIN_PATH}/$$(basename $$PACKAGE) ;\
 	done
 
+testunit-server:
+	mkdir -p ${TESTBIN_PATH}
+	for PACKAGE in github.com/cri-o/cri-o/server; do \
+		go test $$PACKAGE \
+			--tags "test $(BUILDTAGS)" \
+			--gcflags '-N' -c -o ${TESTBIN_PATH}/$$(basename $$PACKAGE) ;\
+	done
+
 mockgen: \
 	mock-cmdrunner \
 	mock-containerstorage \
