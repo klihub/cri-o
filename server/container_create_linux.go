@@ -35,6 +35,8 @@ import (
 	types "k8s.io/cri-api/pkg/apis/runtime/v1"
 
 	"github.com/intel/goresctrl/pkg/blockio"
+
+	"github.com/container-orchestrated-devices/container-device-interface/pkg/cdi"
 )
 
 // createContainerPlatform performs platform dependent intermediate steps before calling the container's oci.Runtime().CreateContainer()
@@ -318,6 +320,11 @@ func (s *Server) createSandboxContainer(ctx context.Context, ctr ctrIface.Contai
 	}
 
 	annotationDevices, err := device.DevicesFromAnnotation(sb.Annotations()[crioann.DevicesAnnotation], s.config.AllowedDevices)
+	if err != nil {
+		return nil, err
+	}
+
+	cdiDevices, err := getRequestedCDIDevices(ctr.Config().GetAnnotations())
 	if err != nil {
 		return nil, err
 	}
@@ -820,6 +827,10 @@ func (s *Server) createSandboxContainer(ctx context.Context, ctr ctrIface.Contai
 		makeOCIConfigurationRootless(specgen)
 	}
 
+	if err := injectCDIDevices(ctx, specgen, cdiDevices); err != nil {
+		return nil, err
+	}
+
 	saveOptions := generate.ExportOptions{}
 	if err := specgen.SaveToFile(filepath.Join(containerInfo.Dir, "config.json"), saveOptions); err != nil {
 		return nil, err
@@ -1100,4 +1111,39 @@ func newLinuxContainerSecurityContext() *types.LinuxContainerSecurityContext {
 		Seccomp:          &types.SecurityProfile{},
 		Apparmor:         &types.SecurityProfile{},
 	}
+}
+
+func getRequestedCDIDevices(annotations map[string]string) ([]string, error) {
+	// TODO:
+	//   CDI device injection is currently requested using container annotations
+	//   with a CDI-specific key namespace. Once CRI is extended with native CDI
+	//   support, this will need to be updated accordingly.
+	_, devices, err := cdi.ParseAnnotations(annotations)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to parse CDI device annotations")
+	}
+
+	return devices, nil
+}
+
+func injectCDIDevices(ctx context.Context, specgen *generate.Generator, devices []string) error {
+	if devices == nil {
+		return nil
+	}
+
+	registry := cdi.GetRegistry()
+	if err := registry.Refresh(); err != nil {
+		// Notes:
+		//   This is not necessarily a fatal error. For instance, an invalid
+		//   Spec file for a particular vendor or device type shouldn't/won't
+		//   prevent injection of devices of a different vendor or type. CDI
+		//   will know better and fail the injection if necessary.
+		log.Warnf(ctx, "CDI registry has errors: %v", err)
+	}
+
+	if _, err := registry.InjectDevices(specgen.Config, devices...); err != nil {
+		return errors.Wrap(err, "CDI device injection failed")
+	}
+
+	return nil
 }
