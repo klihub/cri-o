@@ -123,6 +123,7 @@ help:
 	@echo " * 'lint' - Execute the source code linter"
 	@echo " * 'shfmt' - shell format check and apply diff"
 	@echo " * 'shellcheck' - Execute the shellcheck linter"
+	@echo " * 'local-pr-checks' - Execute checks prior to filing a PR"
 
 # Dummy target for marking pattern rules phony
 .explicit_phony:
@@ -507,6 +508,26 @@ metrics-exporter: bin/metrics-exporter
 		-f contrib/metrics-exporter/Containerfile \
 		-t quay.io/crio/metrics-exporter:latest
 
+local-pr-checks: strict-pr-checks advisory-pr-checks
+	@echo "  All mandatory pre-PR checks passed."
+
+strict-pr-checks: \
+	check-log-lines \
+	check-config-template \
+	docs-validation \
+	shellcheck \
+	shfmt \
+	check-vendor \
+	lint \
+	testunit-bin
+	@echo "  *** All strict pre-PR checks passed."
+
+advisory-pr-checks:
+	@$(MAKE) testunit || \
+	echo "   *** Some unit tests failed. Please check if these are due"; \
+	echo "       to changes you made. If they are not, you are all set"; \
+	echo "       for a new PR."
+
 .PHONY: \
 	.explicit_phony \
 	git-validation \
@@ -545,4 +566,7 @@ metrics-exporter: bin/metrics-exporter
 	release \
 	get-script \
 	check-log-lines \
-	verify-dependencies
+	verify-dependencies \
+	local-pr-checks \
+	strict-pr-checks \
+	advisory-pr-checks
