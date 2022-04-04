@@ -237,6 +237,8 @@ require (
 )
 
 replace (
+	github.com/container-orchestrated-devices/container-device-interface => ../container-device-interface
+
 	github.com/u-root/u-root => github.com/u-root/u-root v0.8.1-0.20220307150114-d511ded1d944
 	google.golang.org/genproto => google.golang.org/genproto v0.0.0-20200117163144-32f20d992d24
 	k8s.io/api => k8s.io/kubernetes/staging/src/k8s.io/api v0.0.0-20211207180839-ab69524f795c

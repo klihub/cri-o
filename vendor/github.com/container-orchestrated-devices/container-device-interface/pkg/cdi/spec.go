@@ -17,6 +17,7 @@
 package cdi
 
 import (
+	"encoding/json"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -68,8 +69,16 @@ func ReadSpec(path string, priority int) (*Spec, error) {
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to parse CDI Spec %q", path)
 	}
+	if raw == nil {
+		return nil, errors.Errorf("failed to parse CDI Spec %q, no Spec data", path)
+	}
 
-	return NewSpec(raw, path, priority)
+	spec, err := NewSpec(raw, path, priority)
+	if err != nil {
+		return nil, err
+	}
+
+	return spec, nil
 }
 
 // NewSpec creates a new Spec from the given CDI Spec data. The
@@ -77,7 +86,10 @@ func ReadSpec(path string, priority int) (*Spec, error) {
 // priority. If Spec data validation fails NewSpec returns a nil
 // Spec and an error.
 func NewSpec(raw *cdi.Spec, path string, priority int) (*Spec, error) {
-	var err error
+	err := validateWithSchema(raw)
+	if err != nil {
+		return nil, err
+	}
 
 	spec := &Spec{
 		Spec:     raw,
@@ -92,6 +104,45 @@ func NewSpec(raw *cdi.Spec, path string, priority int) (*Spec, error) {
 	}
 
 	return spec, nil
+}
+
+// Write the CDI Spec to the path associated with the Spec in NewSpec(). The
+// Spec content is validated before writing anything. If validation fails an
+// error is returned and no data is written.
+func (s *Spec) Write() error {
+	var (
+		data []byte
+		err  error
+		tmp  string
+	)
+
+	if filepath.Ext(s.path) == ".yaml" {
+		data, err = yaml.Marshal(s.Spec)
+	} else {
+		data, err = json.Marshal(s.Spec)
+	}
+	if err != nil {
+		return errors.Wrapf(err, "failed to marshal Spec file %s", s.path)
+	}
+
+	err = os.MkdirAll(filepath.Dir(s.path), 0o755)
+	if err != nil {
+		return errors.Wrapf(err, "failed to create Spec file %s", s.path)
+	}
+
+	tmp = s.path + ".tmp"
+	err = ioutil.WriteFile(tmp, data, 0o755)
+	if err != nil {
+		return errors.Wrapf(err, "failed to write Spec file %s", tmp)
+	}
+
+	err = os.Rename(tmp, s.path)
+	if err != nil {
+		os.Remove(tmp)
+		return errors.Wrapf(err, "failed to rename Spec file %s", s.path)
+	}
+
+	return nil
 }
 
 // GetVendor returns the vendor of this Spec.
@@ -170,16 +221,10 @@ func validateVersion(version string) error {
 
 // Parse raw CDI Spec file data.
 func parseSpec(data []byte) (*cdi.Spec, error) {
-	raw := &cdi.Spec{}
+	var raw *cdi.Spec
 	err := yaml.UnmarshalStrict(data, &raw)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to unmarshal CDI Spec")
 	}
-	return raw, validateJSONSchema(raw)
-}
-
-// Validate CDI Spec against JSON Schema.
-func validateJSONSchema(raw *cdi.Spec) error {
-	// TODO
-	return nil
+	return raw, nil
 }

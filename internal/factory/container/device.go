@@ -184,15 +184,26 @@ func (c *container) specInjectCDIDevices() error {
 		return nil
 	}
 
-	registry := cdi.GetRegistry()
-	if err := registry.Refresh(); err != nil {
-		// We don't consider registry refresh failure a fatal error.
-		// For instance, a dynamically generated invalid CDI Spec file for
-		// any particular vendor shouldn't prevent injection of devices of
-		// different vendors. CDI itself knows better and it will fail the
-		// injection if necessary.
+	// We don't consider registry errors during a refresh a fatal error.
+	// For instance, a dynamically generated invalid CDI Spec file for
+	// any particular vendor shouldn't prevent injection of devices for
+	// other vendors. CDI itself will know whether an injection request
+	// should be rejected and will do so if necessary.
+	//
+	// However, CDI monitors and automatically reloads its Spec cache on
+	// changes, and since that happens independently and unbeknown to us
+	// we do want to give a warning before injection, whenever the cache
+	// had recorded errors during its last refresh.
 
-		log.Warnf(context.TODO(), "CDI registry has errors: %v", err)
+	registry := cdi.GetRegistry()
+	if perPathErrors := registry.GetErrors(); len(perPathErrors) > 0 {
+		log.Warnf(context.TODO(), "CDI registry has errors")
+		for path, errors := range perPathErrors {
+			log.Warnf(context.TODO(), "CDI errors for '%s':", path)
+			for _, err := range errors {
+				log.Warnf(context.TODO(), "  %v", err)
+			}
+		}
 	}
 
 	if _, err := registry.InjectDevices(c.Spec().Config, names...); err != nil {

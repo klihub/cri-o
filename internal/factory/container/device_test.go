@@ -204,7 +204,7 @@ var _ = t.Describe("Container", func() {
 				}
 			}
 
-			return cdi.GetRegistry(cdi.WithSpecDirs(dir)).Refresh()
+			return cdi.GetRegistry().Configure(cdi.WithSpecDirs(dir))
 		}
 
 		type testdata struct {

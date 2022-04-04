@@ -1048,7 +1048,16 @@ func (c *RuntimeConfig) Validate(systemContext *types.SystemContext, onExecution
 		}
 		c.HooksDir = hooksDirs
 
-		cdi.GetRegistry(cdi.WithSpecDirs(c.CDISpecDirs...))
+		registry := cdi.GetRegistry(cdi.WithSpecDirs(c.CDISpecDirs...))
+		if perPathErrors := registry.GetErrors(); len(perPathErrors) > 0 {
+			logrus.Warnf("CDI registry has errors")
+			for path, errors := range perPathErrors {
+				logrus.Warnf("CDI errors for '%s':", path)
+				for _, err := range errors {
+					logrus.Warnf("  %v", err)
+				}
+			}
+		}
 
 		// Validate the conmon path
 		if err := c.ValidateConmonPath("conmon"); err != nil {
