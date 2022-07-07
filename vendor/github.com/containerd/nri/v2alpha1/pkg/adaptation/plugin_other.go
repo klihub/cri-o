@@ -1,3 +1,6 @@
+//go:build !linux
+// +build !linux
+
 /*
    Copyright The containerd Authors.
 
@@ -14,30 +17,15 @@
    limitations under the License.
 */
 
-package ttrpc
+package runtime
 
 import (
 	"fmt"
-
-	"google.golang.org/protobuf/proto"
+	"net"
+	"runtime"
 )
 
-type codec struct{}
-
-func (c codec) Marshal(msg interface{}) ([]byte, error) {
-	switch v := msg.(type) {
-	case proto.Message:
-		return proto.Marshal(v)
-	default:
-		return nil, fmt.Errorf("ttrpc: cannot marshal unknown type: %T", msg)
-	}
-}
-
-func (c codec) Unmarshal(p []byte, msg interface{}) error {
-	switch v := msg.(type) {
-	case proto.Message:
-		return proto.Unmarshal(p, v)
-	default:
-		return fmt.Errorf("ttrpc: cannot unmarshal into unknown type: %T", msg)
-	}
+// getPeerPid returns the process id at the other end of the connection.
+func getPeerPid(conn net.Conn) (int, error) {
+	return 0, fmt.Errorf("getPeerPid() unimplemented on %s", runtime.GOOS)
 }

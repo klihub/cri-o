@@ -14,30 +14,20 @@
    limitations under the License.
 */
 
-package ttrpc
+package api
 
 import (
-	"fmt"
-
-	"google.golang.org/protobuf/proto"
+	rspec "github.com/opencontainers/runtime-spec/specs-go"
 )
 
-type codec struct{}
-
-func (c codec) Marshal(msg interface{}) ([]byte, error) {
-	switch v := msg.(type) {
-	case proto.Message:
-		return proto.Marshal(v)
-	default:
-		return nil, fmt.Errorf("ttrpc: cannot marshal unknown type: %T", msg)
+// FromOCILinuxNamespaces returns a namespace slice from an OCI runtime Spec.
+func FromOCILinuxNamespaces(o []rspec.LinuxNamespace) []*LinuxNamespace {
+	var namespaces []*LinuxNamespace
+	for _, ns := range o {
+		namespaces = append(namespaces, &LinuxNamespace{
+			Type: string(ns.Type),
+			Path: ns.Path,
+		})
 	}
-}
-
-func (c codec) Unmarshal(p []byte, msg interface{}) error {
-	switch v := msg.(type) {
-	case proto.Message:
-		return proto.Unmarshal(p, v)
-	default:
-		return fmt.Errorf("ttrpc: cannot unmarshal into unknown type: %T", msg)
-	}
+	return namespaces
 }

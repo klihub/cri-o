@@ -11,6 +11,7 @@ require (
 	github.com/containerd/containerd v1.6.6
 	github.com/containerd/cri-containerd v1.19.0
 	github.com/containerd/fifo v1.0.0
+	github.com/containerd/nri v0.1.0
 	github.com/containerd/ttrpc v1.1.0
 	github.com/containerd/typeurl v1.0.2
 	github.com/containernetworking/cni v1.1.1
@@ -50,6 +51,7 @@ require (
 	github.com/opencontainers/runtime-spec v1.0.3-0.20211214071223-8958f93039ab
 	github.com/opencontainers/runtime-tools v0.9.1-0.20220110225228-7e2d60f1e41f
 	github.com/opencontainers/selinux v1.10.1
+	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.12.2
 	github.com/psampaz/go-mod-outdated v0.8.0
 	github.com/sirupsen/logrus v1.8.1
@@ -111,7 +113,6 @@ require (
 	github.com/VividCortex/ewma v1.2.0 // indirect
 	github.com/acarl005/stripansi v0.0.0-20180116102854-5a71ef0e047d // indirect
 	github.com/acomagu/bufpipe v1.0.3 // indirect
-	github.com/anmitsu/go-shlex v0.0.0-20200514113438-38f4b401e2be // indirect
 	github.com/asaskevich/govalidator v0.0.0-20210307081110-f21760c49a8d // indirect
 	github.com/aws/aws-sdk-go v1.43.45 // indirect
 	github.com/aws/aws-sdk-go-v2 v1.16.4 // indirect
@@ -285,7 +286,6 @@ require (
 	github.com/pelletier/go-toml v1.9.5 // indirect
 	github.com/pelletier/go-toml/v2 v2.0.1 // indirect
 	github.com/pkg/diff v0.0.0-20210226163009-20ebb0f2a09e // indirect
-	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/power-devops/perfstat v0.0.0-20210106213030-5aafc221ea8c // indirect
 	github.com/proglottis/gpgme v0.1.1 // indirect
@@ -403,6 +403,10 @@ require (
 )
 
 replace (
+	// Temporarily divert repo for updated/extended NRI, undo it's unwanted side-effects.
+	github.com/containerd/nri => github.com/klihub/nri v0.0.0-20220707093657-e85c915c1bb4
+	github.com/containerd/ttrpc v1.1.0 => github.com/containerd/ttrpc v0.0.0-20220421210857-74421d10189e
+
 	github.com/u-root/u-root => github.com/u-root/u-root v0.8.1-0.20220307150114-d511ded1d944
 	// TODO: Remove me when https://github.com/etcd-io/etcd/pull/13808 got merged and released.
 	go.etcd.io/etcd/v3 => github.com/hanyuancheung/etcd/v3 v3.6.0-alpha.0.0.20220329071255-af9bd287fe0e
