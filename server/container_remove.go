@@ -47,10 +47,24 @@ func (s *Server) removeContainerInPod(ctx context.Context, sb *sandbox.Sandbox, 
 					c.ID(), sb.ID(), err)
 			}
 		}
+
+		if s.nriApi.isEnabled() {
+			if err := s.nriApi.stopContainer(ctx, sb, c); err != nil {
+				log.Warnf(ctx, "NRI container stop failed for container %s of pod %s: %v",
+					c.ID(), sb.ID(), err)
+			}
+		}
 	}
 
 	if s.nri.isEnabled() {
 		if err := s.nri.RemoveContainer(ctx, c); err != nil {
+			log.Warnf(ctx, "NRI container removal failed for container %s of pod %s: %v",
+				c.ID(), sb.ID(), err)
+		}
+	}
+
+	if s.nriApi.isEnabled() {
+		if err := s.nriApi.removeContainer(ctx, sb, c); err != nil {
 			log.Warnf(ctx, "NRI container removal failed for container %s of pod %s: %v",
 				c.ID(), sb.ID(), err)
 		}

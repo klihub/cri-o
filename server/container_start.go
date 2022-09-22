@@ -73,6 +73,12 @@ func (s *Server) StartContainer(ctx context.Context, req *types.StartContainerRe
 		}
 	}
 
+	if s.nriApi.isEnabled() {
+		if err = s.nriApi.startContainer(ctx, sandbox, c); err != nil {
+			log.Warnf(ctx, "NRI start failed for container %q: %v", c.ID(), err)
+		}
+	}
+
 	defer func() {
 		// if the call to StartContainer fails below we still want to fill
 		// some fields of a container status. In particular, we're going to
@@ -88,6 +94,12 @@ func (s *Server) StartContainer(ctx context.Context, req *types.StartContainerRe
 
 			if s.nri.isEnabled() {
 				if err := s.nri.StopContainer(ctx, c, sandbox); err != nil {
+					log.Warnf(ctx, "NRI stop failed for container %q: %v", c.ID(), err)
+				}
+			}
+
+			if s.nriApi.isEnabled() {
+				if err = s.nriApi.stopContainer(ctx, sandbox, c); err != nil {
 					log.Warnf(ctx, "NRI stop failed for container %q: %v", c.ID(), err)
 				}
 			}
@@ -109,6 +121,12 @@ func (s *Server) StartContainer(ctx context.Context, req *types.StartContainerRe
 
 	if s.nri.isEnabled() {
 		if err := s.nri.PostStartContainer(ctx, c, sandbox); err != nil {
+			log.Warnf(ctx, "NRI post-start failed for container %q: %v", c.ID(), err)
+		}
+	}
+
+	if s.nriApi.isEnabled() {
+		if err = s.nriApi.postStartContainer(ctx, sandbox, c); err != nil {
 			log.Warnf(ctx, "NRI post-start failed for container %q: %v", c.ID(), err)
 		}
 	}

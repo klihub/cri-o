@@ -73,6 +73,12 @@ func (s *Server) removePodSandbox(ctx context.Context, sb *sandbox.Sandbox) erro
 		}
 	}
 
+	if s.nriApi.isEnabled() {
+		if err := s.nriApi.removePodSandbox(ctx, sb); err != nil {
+			log.Warnf(ctx, "NRI pod removal failed for %q: %v", sb.ID(), err)
+		}
+	}
+
 	log.Infof(ctx, "Removed pod sandbox: %s", sb.ID())
 	return nil
 }

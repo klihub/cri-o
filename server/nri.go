@@ -35,6 +35,8 @@ type nriRuntime struct {
 
 // Set up CRI-O server/NRI adaptation.
 func (s *Server) setupNRI(name, version string) error {
+	return nil // temporarily disable this
+
 	if !s.Config().NRI.Enabled {
 		logrus.Infof("NRI is disabled")
 		return nil

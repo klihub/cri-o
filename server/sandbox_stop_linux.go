@@ -62,6 +62,11 @@ func (s *Server) stopPodSandbox(ctx context.Context, sb *sandbox.Sandbox) error 
 								c.ID(), sb.ID(), err)
 						}
 					}
+					if s.nriApi.isEnabled() {
+						if s.nriApi.stopContainer(ctx, sb, c); err != nil {
+							return err
+						}
+					}
 					return nil
 				})
 			}
@@ -86,6 +91,12 @@ func (s *Server) stopPodSandbox(ctx context.Context, sb *sandbox.Sandbox) error 
 
 	if err := sb.UnmountShm(); err != nil {
 		return err
+	}
+
+	if s.nriApi.isEnabled() {
+		if err := s.nriApi.stopPodSandbox(ctx, sb); err != nil {
+			return err
+		}
 	}
 
 	log.Infof(ctx, "Stopped pod sandbox: %s", sb.ID())
