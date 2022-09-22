@@ -14,7 +14,7 @@ require (
 	github.com/containerd/cri-containerd v1.19.0
 	github.com/containerd/fifo v1.0.0
 	github.com/containerd/nri v0.1.0
-	github.com/containerd/ttrpc v1.1.0
+	github.com/containerd/ttrpc v1.1.1-0.20220420014843-944ef4a40df3
 	github.com/containerd/typeurl v1.0.2
 	github.com/containernetworking/cni v1.1.2
 	github.com/containernetworking/plugins v1.1.1
@@ -25,6 +25,7 @@ require (
 	github.com/containers/image/v5 v5.22.0
 	github.com/containers/kubensmnt v1.2.0
 	github.com/containers/ocicrypt v1.1.5
+	github.com/containers/podman/v3 v3.2.0-rc1.0.20211005134800-8bcc086b1b9d
 	github.com/containers/podman/v4 v4.2.0
 	github.com/containers/storage v1.42.0
 	github.com/coreos/go-systemd/v22 v22.3.2
