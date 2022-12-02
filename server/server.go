@@ -879,7 +879,7 @@ func (s *Server) handleExit(ctx context.Context, event fsnotify.Event) {
 		log.Warnf(ctx, "Unable to write %s %s state to disk: %v", resource, c.ID(), err)
 	}
 
-	if nriCtr != nil && s.nri.isEnabled() {
+	if nriCtr != nil {
 		s.nri.stopContainer(ctx, nil, nriCtr)
 	}
 

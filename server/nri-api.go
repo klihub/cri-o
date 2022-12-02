@@ -60,6 +60,10 @@ func (a *nriAPI) isEnabled() bool {
 //
 
 func (a *nriAPI) runPodSandbox(ctx context.Context, criPod *sandbox.Sandbox) error {
+	if !a.isEnabled() {
+		return nil
+	}
+
 	pod := nriPodSandbox(criPod)
 	err := a.nri.RunPodSandbox(ctx, pod)
 
@@ -72,6 +76,10 @@ func (a *nriAPI) runPodSandbox(ctx context.Context, criPod *sandbox.Sandbox) err
 }
 
 func (a *nriAPI) stopPodSandbox(ctx context.Context, criPod *sandbox.Sandbox) error {
+	if !a.isEnabled() {
+		return nil
+	}
+
 	pod := nriPodSandbox(criPod)
 	err := a.nri.StopPodSandbox(ctx, pod)
 
@@ -79,6 +87,10 @@ func (a *nriAPI) stopPodSandbox(ctx context.Context, criPod *sandbox.Sandbox) er
 }
 
 func (a *nriAPI) removePodSandbox(ctx context.Context, criPod *sandbox.Sandbox) error {
+	if !a.isEnabled() {
+		return nil
+	}
+
 	pod := nriPodSandbox(criPod)
 	err := a.nri.RemovePodSandbox(ctx, pod)
 
@@ -86,6 +98,10 @@ func (a *nriAPI) removePodSandbox(ctx context.Context, criPod *sandbox.Sandbox) 
 }
 
 func (a *nriAPI) createContainer(ctx context.Context, specgen *generate.Generator, criPod *sandbox.Sandbox, criCtr *oci.Container) error {
+	if !a.isEnabled() {
+		return nil
+	}
+
 	pod := nriPodSandbox(criPod)
 	ctr := &criContainer{
 		api:  a,
@@ -171,6 +187,10 @@ func (a *nriAPI) createContainer(ctx context.Context, specgen *generate.Generato
 }
 
 func (a *nriAPI) postCreateContainer(ctx context.Context, criPod *sandbox.Sandbox, criCtr *oci.Container) error {
+	if !a.isEnabled() {
+		return nil
+	}
+
 	pod := nriPodSandbox(criPod)
 	ctr := &criContainer{
 		api: a,
@@ -183,6 +203,10 @@ func (a *nriAPI) postCreateContainer(ctx context.Context, criPod *sandbox.Sandbo
 }
 
 func (a *nriAPI) startContainer(ctx context.Context, criPod *sandbox.Sandbox, criCtr *oci.Container) error {
+	if !a.isEnabled() {
+		return nil
+	}
+
 	pod := nriPodSandbox(criPod)
 	ctr := &criContainer{
 		api: a,
@@ -195,6 +219,10 @@ func (a *nriAPI) startContainer(ctx context.Context, criPod *sandbox.Sandbox, cr
 }
 
 func (a *nriAPI) postStartContainer(ctx context.Context, criPod *sandbox.Sandbox, criCtr *oci.Container) error {
+	if !a.isEnabled() {
+		return nil
+	}
+
 	pod := nriPodSandbox(criPod)
 	ctr := &criContainer{
 		api: a,
@@ -207,6 +235,10 @@ func (a *nriAPI) postStartContainer(ctx context.Context, criPod *sandbox.Sandbox
 }
 
 func (a *nriAPI) updateContainer(ctx context.Context, criPod *sandbox.Sandbox, criCtr *oci.Container, req *cri.LinuxContainerResources) (*cri.LinuxContainerResources, error) {
+	if !a.isEnabled() {
+		return nil, nil
+	}
+
 	const noOomAdj = 0
 
 	pod := nriPodSandbox(criPod)
@@ -224,6 +256,10 @@ func (a *nriAPI) updateContainer(ctx context.Context, criPod *sandbox.Sandbox, c
 }
 
 func (a *nriAPI) postUpdateContainer(ctx context.Context, criPod *sandbox.Sandbox, criCtr *oci.Container) error {
+	if !a.isEnabled() {
+		return nil
+	}
+
 	pod := nriPodSandbox(criPod)
 	ctr := &criContainer{
 		api: a,
@@ -236,6 +272,10 @@ func (a *nriAPI) postUpdateContainer(ctx context.Context, criPod *sandbox.Sandbo
 }
 
 func (a *nriAPI) stopContainer(ctx context.Context, criPod *sandbox.Sandbox, criCtr *oci.Container) error {
+	if !a.isEnabled() {
+		return nil
+	}
+
 	ctr := &criContainer{
 		api: a,
 		ctr: criCtr,
@@ -263,6 +303,10 @@ func (a *nriAPI) stopContainer(ctx context.Context, criPod *sandbox.Sandbox, cri
 }
 
 func (a *nriAPI) removeContainer(ctx context.Context, criPod *sandbox.Sandbox, criCtr *oci.Container) error {
+	if !a.isEnabled() {
+		return nil
+	}
+
 	pod := nriPodSandbox(criPod)
 	ctr := &criContainer{
 		api: a,
@@ -275,6 +319,10 @@ func (a *nriAPI) removeContainer(ctx context.Context, criPod *sandbox.Sandbox, c
 }
 
 func (a *nriAPI) undoCreateContainer(ctx context.Context, specgen *generate.Generator, criPod *sandbox.Sandbox, criCtr *oci.Container) {
+	if !a.isEnabled() {
+		return
+	}
+
 	pod := nriPodSandbox(criPod)
 	ctr := &criContainer{
 		api:  a,

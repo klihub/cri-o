@@ -982,10 +982,8 @@ func (s *Server) runPodSandbox(ctx context.Context, req *types.RunPodSandboxRequ
 	}
 	sb.AddIPs(ips)
 
-	if s.nri.isEnabled() {
-		if err := s.nri.runPodSandbox(ctx, sb); err != nil {
-			return nil, err
-		}
+	if err := s.nri.runPodSandbox(ctx, sb); err != nil {
+		return nil, err
 	}
 
 	if isContextError(ctx.Err()) {
