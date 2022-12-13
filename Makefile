@@ -92,6 +92,8 @@ GOPKGDIR := $(GOPATH)/src/$(PROJECT)
 GOPKGBASEDIR := $(shell dirname "$(GOPKGDIR)")
 GO_FILES := $(shell find . -type f -name '*.go' -not -name '*_test.go')
 
+GINKGO_SKIP_PACKAGES = test/nri
+
 # Update VPATH so make finds .gopathok
 VPATH := $(VPATH):$(GOPATH)
 
@@ -185,6 +187,12 @@ test/checkseccomp/checkseccomp: $(GO_FILES) .gopathok
 test/checkcriu/checkcriu: $(GO_FILES) .gopathok
 	$(GO_BUILD) $(GCFLAGS) $(GO_LDFLAGS) -tags "$(BUILDTAGS)" -o $@ $(PROJECT)/test/checkcriu
 
+test/nri/nri.test: $(wildcard test/nri/*.go) .gopathok
+	$(GO) test --tags "test $(BUILDTAGS)" -c $(PROJECT)/test/nri -o $@ 
+
+test/nri.bats: test/nri/nri.test
+	test/nri/generate-tests test/nri/nri.bats.template $@ $$($< -test.list Test)
+
 bin/crio: $(GO_FILES) .gopathok
 	$(GO_BUILD) $(GCFLAGS) $(GO_LDFLAGS) -tags "$(BUILDTAGS)" -o $@ $(PROJECT)/cmd/crio
 
@@ -229,6 +237,7 @@ endif
 	rm -f test/copyimg/copyimg
 	rm -f test/checkseccomp/checkseccomp
 	rm -f test/checkcriu/checkcriu
+	rm -f test/nri/nri.test
 	rm -rf ${BUILD_BIN_PATH}
 
 # the approach here, rather than this target depending on the build targets
@@ -308,6 +317,7 @@ testunit: ${GINKGO}
 	${BUILD_BIN_PATH}/ginkgo run \
 		${TESTFLAGS} \
 		-r \
+		--skip-package $(GINKGO_SKIP_PACKAGES) \
 		--trace \
 		--cover \
 		--covermode atomic \
@@ -386,7 +396,8 @@ localintegration: clean binaries test-binaries
 	./test/test_runner.sh ${TESTFLAGS}
 
 binaries: bin/crio bin/crio-status bin/pinns
-test-binaries: test/copyimg/copyimg test/checkseccomp/checkseccomp test/checkcriu/checkcriu
+test-binaries: test/copyimg/copyimg test/checkseccomp/checkseccomp test/checkcriu/checkcriu \
+	test/nri/nri.test test/nri.bats
 
 MANPAGES_MD := $(wildcard docs/*.md)
 MANPAGES    := $(MANPAGES_MD:%.md=%)

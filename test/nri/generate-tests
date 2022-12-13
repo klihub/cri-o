@@ -1,0 +1,24 @@
+#!/bin/bash
+
+template="$1"
+out="$2"
+shift 2
+
+if [ -z "$template" ]; then
+    echo "No NRI test template given."
+    echo "usage: $0 test-template bats-output testcase-names..."
+    exit 1
+fi
+
+if [ ! -e "$template" ]; then
+    echo "No NRI test template \"$template\" found."
+    exit 1
+fi
+
+grep -v '^#@ ' "$template" >"$out"
+for tc in "$@"; do
+    tc=${tc#Test}
+    echo "Generating NRI test case $tc..."
+    grep '^#@ ' "$template" | sed 's/^#@ //g;'"s/TESTCASE/$tc/g" >>"$out"
+    echo "" >>"$out"
+done

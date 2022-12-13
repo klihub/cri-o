@@ -1,0 +1,71 @@
+#!/usr/bin/env bats
+
+#
+# This is our generated BATS file for NRI end-to-end tests.
+# The actual NRI test cases are implemented in test/nri and
+# compiled into the test binary test/nri/nri.test.
+#
+# This file is used to hook each test from that binary into
+# BATS as a separate test case for more granular test result
+# reporting. It needs to be updated whenever test cases are
+# added to or removed from the test binary. Use the provided
+# Makefile rule (make test/nri.bats) or 'make test-binaries'
+# to regenerate this file.
+#
+
+load helpers
+
+function setup() {
+	setup_test
+	NRITEST_BINARY=${NRITEST_BINARY:-${CRIO_ROOT}/test/nri/nri.test}
+	NRITEST_LOG="$TESTDIR/nri.test.log"
+	NRI_SOCKET="$TESTDIR/nri.sock"
+	enable_nri
+}
+
+function enable_nri() {
+	touch "$TESTDIR/nri.conf"
+	cat << EOF > "$CRIO_CONFIG_DIR/zz-nri.conf"
+[crio.nri]
+enable_nri = true
+nri_config_file = "$TESTDIR/nri.conf"
+nri_socket_path = "$NRI_SOCKET"
+EOF
+}
+
+function teardown() {
+	if [ -f "$NRITEST_LOG" ]; then
+		echo "# --- nri.test.log :: ---"
+		cat "$NRITEST_LOG"
+		echo "# --- --- ---"
+		echo "# --- environment :: ---"
+		env
+		echo "# --- --- ---"
+		echo "# --- user and groups :: ---"
+		id -a
+		echo "# --- --- ---"
+		echo "# --- mounts :: ---"
+		mount
+		echo "# --- --- ---"
+	fi
+	cleanup_test
+}
+
+function run_test() {
+	$NRITEST_BINARY \
+	    --crio-socket "unix://$CRIO_SOCKET" \
+	    --nri-socket "unix://$NRI_SOCKET" \
+            --userns "${TEST_USERNS:-0}" \
+	    --cgroup-manager "$CONTAINER_CGROUP_MANAGER" "$@" >& "$NRITEST_LOG"
+
+	if [[ "$status" -ne "0" ]]; then
+		# shellcheck disable=SC2034
+		BATS_ERROR_SUFFIX=", expected exit status $expected_status, got $status"
+		return 1
+	fi
+}
+
+#@ @test "run NRI TESTCASE test" {
+#@ 	start_crio
+#@ 	run_test -test.run TestTESTCASE
+#@ }
