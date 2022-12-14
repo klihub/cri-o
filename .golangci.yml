@@ -228,3 +228,10 @@ linters-settings:
     min-complexity: 154
   nakedret:
     max-func-lines: 15
+
+issues:
+  exclude-rules:
+    - path: test/nri/nri_test.go
+      linters:
+        - dupl
+      text: "lines are duplicate of"
