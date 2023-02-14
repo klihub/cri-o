@@ -140,6 +140,7 @@ var beforeEach = func() {
 	Expect(err).To(BeNil())
 	serverConfig, err = config.DefaultConfig()
 	Expect(err).To(BeNil())
+	serverConfig.NRI.Enabled = true
 	serverConfig.ContainerAttachSocketDir = testPath
 	serverConfig.ContainerExitsDir = path.Join(testPath, "exits")
 	serverConfig.LogDir = path.Join(testPath, "log")
