@@ -891,9 +891,7 @@ func (s *Server) handleExit(ctx context.Context, event fsnotify.Event) {
 	}
 
 	if nriCtr != nil {
-		if err := s.nri.stopContainer(ctx, nil, nriCtr); err != nil {
-			log.Warnf(ctx, "NRI stop container request of %s failed: %v", nriCtr.ID(), err)
-		}
+		s.nri.notifyContainerExit(ctx, nriCtr)
 	}
 
 	s.generateCRIEvent(ctx, c, types.ContainerEventType_CONTAINER_STOPPED_EVENT)

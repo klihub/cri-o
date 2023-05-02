@@ -3,7 +3,9 @@ package nri
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
+	"time"
 
 	config "github.com/cri-o/cri-o/internal/config/nri"
 	"github.com/cri-o/cri-o/internal/log"
@@ -66,6 +68,9 @@ type API interface {
 	// StopContainer relays container stop requests to NRI.
 	StopContainer(context.Context, PodSandbox, Container) error
 
+	// NotifyContainerExit tiggers an NRI stop request for a container NRI event.
+	NotifyContainerExit(context.Context, PodSandbox, Container)
+
 	// StopContainer relays container removal events to NRI.
 	RemoveContainer(context.Context, PodSandbox, Container) error
 }
@@ -85,9 +90,94 @@ type local struct {
 	nri *nri.Adaptation
 
 	state map[string]State
+
+	exitC   chan *exitEvent
+	updateC chan []*nri.ContainerUpdate
+	stopC   chan struct{}
+}
+
+type exitEvent struct {
+	pod PodSandbox
+	ctr Container
 }
 
 var _ API = &local{}
+
+func (l *local) Lock(caller ...string) {
+	if len(caller) > 0 {
+		logrus.Infof("locking NRI for %s", strings.Join(caller, " "))
+	}
+	l.Mutex.Lock()
+	if len(caller) > 0 {
+		logrus.Infof("locked NRI for %s", strings.Join(caller, " "))
+	}
+}
+
+func (l *local) Unlock(caller ...string) {
+	l.Mutex.Unlock()
+	if len(caller) > 0 {
+		logrus.Infof("unlocked NRI for %s", strings.Join(caller, " "))
+	}
+}
+
+func (l *local) setupUpdater() {
+	l.updateC = make(chan []*nri.ContainerUpdate, 32)
+	l.stopC = make(chan struct{})
+
+	go l.asyncUpdater()
+}
+
+func (l *local) asyncUpdater() {
+	for {
+		ctx := context.Background()
+		select {
+		case _ = <-l.stopC:
+			return
+		case updates, ok := <-l.updateC:
+			if ok {
+				if _, err := l.applyUpdates(ctx, updates); err != nil {
+					logrus.Warnf("container update failed: %v", err)
+				}
+			}
+		}
+	}
+}
+
+func (l *local) asyncUpdate(updates []*nri.ContainerUpdate) {
+	l.updateC <- updates
+}
+
+func (l *local) setupExitHandler() {
+	l.exitC = make(chan *exitEvent, 32)
+
+	go l.asyncExitHandler()
+}
+
+func (l *local) asyncExitHandler() {
+	for {
+		ctx := context.Background()
+		select {
+		case _ = <-l.stopC:
+			return
+		case e, ok := <-l.exitC:
+			if ok {
+				l.Lock("ExitEvent", e.ctr.GetID())
+				l.stopContainer(ctx, e.pod, e.ctr)
+				l.Unlock("ExitEvent", e.ctr.GetID())
+			}
+		}
+	}
+}
+
+func (l *local) asyncExit(pod PodSandbox, ctr Container) {
+	go func() {
+		time.Sleep(1 * time.Second)
+		l.exitC <- &exitEvent{
+			pod: pod,
+			ctr: ctr,
+		}
+	}()
+}
 
 // New creates an instance of the NRI interface with the given configuration.
 func New(cfg *config.Config) (*local, error) {
@@ -124,6 +214,9 @@ func New(cfg *config.Config) (*local, error) {
 
 	l.state = make(map[string]State)
 
+	l.setupUpdater()
+	l.setupExitHandler()
+
 	return l, nil
 }
 
@@ -147,6 +240,7 @@ func (l *local) Stop() {
 	l.Lock()
 	defer l.Unlock()
 
+	close(l.stopC)
 	l.nri.Stop()
 	l.nri = nil
 }
@@ -156,8 +250,8 @@ func (l *local) RunPodSandbox(ctx context.Context, pod PodSandbox) error {
 		return nil
 	}
 
-	l.Lock()
-	defer l.Unlock()
+	l.Lock("RunPodSandbox", pod.GetID())
+	defer l.Unlock("RunPodSandbox", pod.GetID())
 
 	request := &nri.RunPodSandboxRequest{
 		Pod: podSandboxToNRI(pod),
@@ -173,8 +267,8 @@ func (l *local) StopPodSandbox(ctx context.Context, pod PodSandbox) error {
 		return nil
 	}
 
-	l.Lock()
-	defer l.Unlock()
+	l.Lock("StopPodSandbox", pod.GetID())
+	defer l.Unlock("StopPodSandbox", pod.GetID())
 
 	request := &nri.StopPodSandboxRequest{
 		Pod: podSandboxToNRI(pod),
@@ -190,8 +284,8 @@ func (l *local) RemovePodSandbox(ctx context.Context, pod PodSandbox) error {
 		return nil
 	}
 
-	l.Lock()
-	defer l.Unlock()
+	l.Lock("RemovePodSandbox", pod.GetID())
+	defer l.Unlock("RemovePodSandbox", pod.GetID())
 
 	request := &nri.RemovePodSandboxRequest{
 		Pod: podSandboxToNRI(pod),
@@ -207,8 +301,8 @@ func (l *local) CreateContainer(ctx context.Context, pod PodSandbox, ctr Contain
 		return nil, nil
 	}
 
-	l.Lock()
-	defer l.Unlock()
+	l.Lock("CreateContainer", ctr.GetID())
+	defer l.Unlock("CreateContainer", ctr.GetID())
 
 	request := &nri.CreateContainerRequest{
 		Pod:       podSandboxToNRI(pod),
@@ -221,9 +315,7 @@ func (l *local) CreateContainer(ctx context.Context, pod PodSandbox, ctr Contain
 		return nil, err
 	}
 
-	if _, err := l.applyUpdates(ctx, response.Update); err != nil {
-		return nil, err
-	}
+	l.asyncUpdate(response.Update)
 
 	return response.Adjust, nil
 }
@@ -233,8 +325,8 @@ func (l *local) PostCreateContainer(ctx context.Context, pod PodSandbox, ctr Con
 		return nil
 	}
 
-	l.Lock()
-	defer l.Unlock()
+	l.Lock("PostCreateContainer", ctr.GetID())
+	defer l.Unlock("PostCreateContainer", ctr.GetID())
 
 	request := &nri.PostCreateContainerRequest{
 		Pod:       podSandboxToNRI(pod),
@@ -251,8 +343,8 @@ func (l *local) StartContainer(ctx context.Context, pod PodSandbox, ctr Containe
 		return nil
 	}
 
-	l.Lock()
-	defer l.Unlock()
+	l.Lock("StartContainer", ctr.GetID())
+	defer l.Unlock("StartContainer", ctr.GetID())
 
 	request := &nri.StartContainerRequest{
 		Pod:       podSandboxToNRI(pod),
@@ -271,8 +363,8 @@ func (l *local) PostStartContainer(ctx context.Context, pod PodSandbox, ctr Cont
 		return nil
 	}
 
-	l.Lock()
-	defer l.Unlock()
+	l.Lock("PostStartContainer", ctr.GetID())
+	defer l.Unlock("PostStartContainer", ctr.GetID())
 
 	request := &nri.PostStartContainerRequest{
 		Pod:       podSandboxToNRI(pod),
@@ -289,8 +381,8 @@ func (l *local) UpdateContainer(ctx context.Context, pod PodSandbox, ctr Contain
 		return nil, nil
 	}
 
-	l.Lock()
-	defer l.Unlock()
+	l.Lock("UpdateContainer", ctr.GetID())
+	defer l.Unlock("UpdateContainer", ctr.GetID())
 
 	request := &nri.UpdateContainerRequest{
 		Pod:            podSandboxToNRI(pod),
@@ -303,10 +395,12 @@ func (l *local) UpdateContainer(ctx context.Context, pod PodSandbox, ctr Contain
 		return nil, err
 	}
 
-	_, err = l.evictContainers(ctx, response.Evict)
-	if err != nil {
-		return nil, err
-	}
+	go func() {
+		_, err = l.evictContainers(ctx, response.Evict)
+		if err != nil {
+			logrus.Warnf("pre-create eviction failed: %v", err)
+		}
+	}()
 
 	cnt := len(response.Update)
 	if cnt == 0 {
@@ -314,10 +408,7 @@ func (l *local) UpdateContainer(ctx context.Context, pod PodSandbox, ctr Contain
 	}
 
 	if cnt > 1 {
-		_, err = l.applyUpdates(ctx, response.Update[0:cnt-1])
-		if err != nil {
-			return nil, err
-		}
+		l.asyncUpdate(response.Update[0 : cnt-1])
 	}
 
 	return response.Update[cnt-1].GetLinux().GetResources(), nil
@@ -328,8 +419,8 @@ func (l *local) PostUpdateContainer(ctx context.Context, pod PodSandbox, ctr Con
 		return nil
 	}
 
-	l.Lock()
-	defer l.Unlock()
+	l.Lock("PostUpdateContainer", ctr.GetID())
+	defer l.Unlock("PostUpdateContainer", ctr.GetID())
 
 	request := &nri.PostUpdateContainerRequest{
 		Pod:       podSandboxToNRI(pod),
@@ -346,8 +437,8 @@ func (l *local) StopContainer(ctx context.Context, pod PodSandbox, ctr Container
 		return nil
 	}
 
-	l.Lock()
-	defer l.Unlock()
+	l.Lock("StopContainer", ctr.GetID())
+	defer l.Unlock("StopContainer", ctr.GetID())
 
 	return l.stopContainer(ctx, pod, ctr)
 }
@@ -368,9 +459,13 @@ func (l *local) stopContainer(ctx context.Context, pod PodSandbox, ctr Container
 		return err
 	}
 
-	_, err = l.applyUpdates(ctx, response.Update)
+	l.asyncUpdate(response.Update)
 
 	return err
+}
+
+func (l *local) NotifyContainerExit(ctx context.Context, pod PodSandbox, ctr Container) {
+	l.asyncExit(pod, ctr)
 }
 
 func (l *local) RemoveContainer(ctx context.Context, pod PodSandbox, ctr Container) error {
@@ -378,8 +473,8 @@ func (l *local) RemoveContainer(ctx context.Context, pod PodSandbox, ctr Contain
 		return nil
 	}
 
-	l.Lock()
-	defer l.Unlock()
+	l.Lock("RemoveContainer", ctr.GetID())
+	defer l.Unlock("RemoveContainer", ctr.GetID())
 
 	if !l.needsRemoval(ctr.GetID()) {
 		return nil
@@ -405,8 +500,8 @@ func (l *local) IsEnabled() bool {
 }
 
 func (l *local) syncPlugin(ctx context.Context, syncFn nri.SyncCB) error {
-	l.Lock()
-	defer l.Unlock()
+	l.Lock("syncPlugin")
+	defer l.Unlock("syncPlugin")
 
 	log.Infof(ctx, "Synchronizing NRI (plugin) with current runtime state")
 
@@ -440,8 +535,8 @@ func (l *local) syncPlugin(ctx context.Context, syncFn nri.SyncCB) error {
 }
 
 func (l *local) updateFromPlugin(ctx context.Context, req []*nri.ContainerUpdate) ([]*nri.ContainerUpdate, error) {
-	l.Lock()
-	defer l.Unlock()
+	l.Lock("updateFromPlugin")
+	defer l.Unlock("updateFromPlugin")
 
 	log.Infof(ctx, "Unsolicited container update from NRI")
 

@@ -278,6 +278,34 @@ func (a *nriAPI) stopContainer(ctx context.Context, criPod *sandbox.Sandbox, cri
 	return a.nri.StopContainer(ctx, pod, ctr)
 }
 
+func (a *nriAPI) notifyContainerExit(ctx context.Context, criCtr *oci.Container) {
+	if !a.isEnabled() {
+		return
+	}
+
+	ctr := &criContainer{
+		api: a,
+		ctr: criCtr,
+	}
+
+	sandboxID, err := a.cri.PodIDIndex().Get(ctr.GetPodSandboxID())
+	if err != nil {
+		log.Errorf(ctx, "Failed to stop CRI container %q: %v", ctr.GetID(), err)
+		return
+	}
+
+	criPod := a.cri.ContainerServer.GetSandbox(sandboxID)
+	if criPod == nil {
+		log.Errorf(ctx, "Failed to stop CRI container %q: can't find pod %q",
+			ctr.GetID(), sandboxID)
+		return
+	}
+
+	pod := nriPodSandbox(criPod)
+
+	a.nri.NotifyContainerExit(ctx, pod, ctr)
+}
+
 func (a *nriAPI) removeContainer(ctx context.Context, criPod *sandbox.Sandbox, criCtr *oci.Container) error {
 	if !a.isEnabled() {
 		return nil
