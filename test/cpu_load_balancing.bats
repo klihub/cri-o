@@ -73,15 +73,12 @@ function sched_load_balance_path() {
 
 	# check for sched_load_balance
 	check_sched_load_balance "$ctr_pid" 0 # disabled
+}
 
-	# now, create a container with load balancing enabled
-	jq ' .metadata.name = "podsandbox2"' \
-		"$TESTDATA"/sandbox_config.json > "$sboxconfig"
+@test "test cpu load balance disabled on manual stop" {
+	start_crio
 
-	jq ' .metadata.name = "podsandbox-sleep2"' \
-		"$TESTDATA"/container_sleep.json > "$ctrconfig"
-
-	ctr_id=$(crictl run "$ctrconfig" "$sboxconfig")
+	ctr_id=$(crictl run "$TESTDATA"/container_sleep.json "$TESTDATA"/sandbox_config.json)
 	ctr_pid=$(crictl inspect "$ctr_id" | jq .info.pid)
 
 	# check for sched_load_balance
@@ -90,5 +87,21 @@ function sched_load_balance_path() {
 
 	# check sched_load_balance is disabled after container stopped
 	crictl stop "$ctr_id"
+	[[ "0" == $(cat "$path") ]]
+}
+
+@test "test cpu load balance disabled on container exit" {
+	start_crio
+
+	jq '	  .command = ["/bin/sh", "-c", "sleep 5 && exit 0"]' \
+		"$TESTDATA"/container_config.json > "$ctrconfig"
+	ctr_id=$(crictl run "$ctrconfig" "$TESTDATA"/sandbox_config.json)
+	ctr_pid=$(crictl inspect "$ctr_id" | jq .info.pid)
+
+	path=$(sched_load_balance_path "$ctr_pid")
+	# wait until container exits naturally
+	sleep 10
+
+	# check for sched_load_balance
 	[[ "0" == $(cat "$path") ]]
 }

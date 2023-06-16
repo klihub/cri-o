@@ -882,13 +882,16 @@ func (s *Server) handleExit(ctx context.Context, event fsnotify.Event) {
 	c := s.GetContainer(ctx, containerID)
 	nriCtr := c
 	resource := "container"
+	var sb *sandbox.Sandbox
 	if c == nil {
-		sb := s.GetSandbox(containerID)
+		sb = s.GetSandbox(containerID)
 		if sb == nil {
 			return
 		}
 		c = sb.InfraContainer()
 		resource = "sandbox infra"
+	} else {
+		sb = s.GetSandbox(c.Sandbox())
 	}
 	log.Debugf(ctx, "%s exited and found: %v", resource, containerID)
 	if err := s.Runtime().UpdateContainerStatus(ctx, c); err != nil {
@@ -903,6 +906,13 @@ func (s *Server) handleExit(ctx context.Context, event fsnotify.Event) {
 		if err := s.nri.stopContainer(ctx, nil, nriCtr); err != nil {
 			log.Warnf(ctx, "NRI stop container request of %s failed: %v", nriCtr.ID(), err)
 		}
+	}
+
+	hooks, err := runtimehandlerhooks.GetRuntimeHandlerHooks(ctx, &s.config, sb.RuntimeHandler(), sb.Annotations())
+	if err != nil {
+		log.Warnf(ctx, "Failed to get runtime handler %q hooks", sb.RuntimeHandler())
+	} else if err := hooks.PostStop(ctx, c, sb); err != nil {
+		log.Errorf(ctx, "Failed to run post-stop hook for container %s: %v", c.ID(), err)
 	}
 
 	s.generateCRIEvent(ctx, c, types.ContainerEventType_CONTAINER_STOPPED_EVENT)
