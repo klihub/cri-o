@@ -11,7 +11,7 @@ require (
 	github.com/checkpoint-restore/go-criu/v6 v6.3.0
 	github.com/container-orchestrated-devices/container-device-interface v0.5.4
 	github.com/containerd/cgroups v1.1.0
-	github.com/containerd/containerd v1.7.2
+	github.com/containerd/containerd v1.7.4
 	github.com/containerd/cri-containerd v1.19.0
 	github.com/containerd/fifo v1.1.0
 	github.com/containerd/nri v0.3.1-0.20230504231226-94185418e253
@@ -167,7 +167,7 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.16 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.4 // indirect
 	github.com/miekg/pkcs11 v1.1.1 // indirect
-	github.com/mistifyio/go-zfs/v3 v3.0.0 // indirect
+	github.com/mistifyio/go-zfs/v3 v3.0.1 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/moby/patternmatcher v0.5.0 // indirect
 	github.com/moby/spdystream v0.2.0 // indirect
