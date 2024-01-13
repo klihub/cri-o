@@ -13,7 +13,8 @@ require (
 	github.com/containerd/cri-containerd v1.19.0
 	github.com/containerd/fifo v1.1.0
 	github.com/containerd/nri v0.5.0
-	github.com/containerd/ttrpc v1.2.2
+	github.com/containerd/otelttrpc v0.0.0-20240115065405-5909713624e1
+	github.com/containerd/ttrpc v1.2.3-0.20231030150553-baadfd8e7956
 	github.com/containerd/typeurl v1.0.3-0.20220422153119-7f6e6d160d67
 	github.com/containernetworking/cni v1.1.2
 	github.com/containernetworking/plugins v1.4.0
@@ -253,3 +254,5 @@ require (
 	tags.cncf.io/container-device-interface/specs-go v0.6.0 // indirect
 	zenhack.net/go/util v0.0.0-20230218002511-744d2d6d1739 // indirect
 )
+
+replace github.com/containerd/nri => ../../nri/extra-ttrpc-options
