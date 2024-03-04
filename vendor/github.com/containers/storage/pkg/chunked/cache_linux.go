@@ -15,6 +15,7 @@ import (
 	"unsafe"
 
 	storage "github.com/containers/storage"
+	graphdriver "github.com/containers/storage/drivers"
 	"github.com/containers/storage/pkg/chunked/internal"
 	"github.com/containers/storage/pkg/ioutils"
 	jsoniter "github.com/json-iterator/go"
@@ -24,7 +25,9 @@ import (
 
 const (
 	cacheKey     = "chunked-manifest-cache"
-	cacheVersion = 1
+	cacheVersion = 2
+
+	digestSha256Empty = "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 )
 
 type metadata struct {
@@ -48,8 +51,10 @@ type layersCache struct {
 	created time.Time
 }
 
-var cacheMutex sync.Mutex
-var cache *layersCache
+var (
+	cacheMutex sync.Mutex
+	cache      *layersCache
+)
 
 func (c *layersCache) release() {
 	cacheMutex.Lock()
@@ -107,7 +112,7 @@ func (c *layersCache) load() error {
 		}
 
 		bigData, err := c.store.LayerBigData(r.ID, cacheKey)
-		// if the cache areadly exists, read and use it
+		// if the cache already exists, read and use it
 		if err == nil {
 			defer bigData.Close()
 			metadata, err := readMetadataFromCache(bigData)
@@ -118,6 +123,23 @@ func (c *layersCache) load() error {
 			logrus.Warningf("Error reading cache file for layer %q: %v", r.ID, err)
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return err
+		}
+
+		var lcd chunkedLayerData
+
+		clFile, err := c.store.LayerBigData(r.ID, chunkedLayerDataKey)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		if clFile != nil {
+			cl, err := io.ReadAll(clFile)
+			if err != nil {
+				return fmt.Errorf("open manifest file for layer %q: %w", r.ID, err)
+			}
+			json := jsoniter.ConfigCompatibleWithStandardLibrary
+			if err := json.Unmarshal(cl, &lcd); err != nil {
+				return err
+			}
 		}
 
 		// otherwise create it from the layer TOC.
@@ -132,7 +154,7 @@ func (c *layersCache) load() error {
 			return fmt.Errorf("open manifest file for layer %q: %w", r.ID, err)
 		}
 
-		metadata, err := writeCache(manifest, r.ID, c.store)
+		metadata, err := writeCache(manifest, lcd.Format, r.ID, c.store)
 		if err == nil {
 			c.addLayer(r.ID, metadata)
 		}
@@ -185,9 +207,9 @@ func calculateHardLinkFingerprint(f *internal.FileMetadata) (string, error) {
 	return string(digester.Digest()), nil
 }
 
-// generateFileLocation generates a file location in the form $OFFSET@$PATH
-func generateFileLocation(path string, offset uint64) []byte {
-	return []byte(fmt.Sprintf("%d@%s", offset, path))
+// generateFileLocation generates a file location in the form $OFFSET:$LEN:$PATH
+func generateFileLocation(path string, offset, len uint64) []byte {
+	return []byte(fmt.Sprintf("%d:%d:%s", offset, len, path))
 }
 
 // generateTag generates a tag in the form $DIGEST$OFFSET@LEN.
@@ -209,13 +231,13 @@ type setBigData interface {
 // - digest(file.payload))
 // - digest(digest(file.payload) + file.UID + file.GID + file.mode + file.xattrs)
 // - digest(i) for each i in chunks(file payload)
-func writeCache(manifest []byte, id string, dest setBigData) (*metadata, error) {
+func writeCache(manifest []byte, format graphdriver.DifferOutputFormat, id string, dest setBigData) (*metadata, error) {
 	var vdata bytes.Buffer
 	tagLen := 0
 	digestLen := 0
 	var tagsBuffer bytes.Buffer
 
-	toc, err := prepareMetadata(manifest)
+	toc, err := prepareMetadata(manifest, format)
 	if err != nil {
 		return nil, err
 	}
@@ -223,7 +245,7 @@ func writeCache(manifest []byte, id string, dest setBigData) (*metadata, error) 
 	var tags []string
 	for _, k := range toc {
 		if k.Digest != "" {
-			location := generateFileLocation(k.Name, 0)
+			location := generateFileLocation(k.Name, 0, uint64(k.Size))
 
 			off := uint64(vdata.Len())
 			l := uint64(len(location))
@@ -254,7 +276,7 @@ func writeCache(manifest []byte, id string, dest setBigData) (*metadata, error) 
 			digestLen = len(k.Digest)
 		}
 		if k.ChunkDigest != "" {
-			location := generateFileLocation(k.Name, uint64(k.ChunkOffset))
+			location := generateFileLocation(k.Name, uint64(k.ChunkOffset), uint64(k.ChunkSize))
 			off := uint64(vdata.Len())
 			l := uint64(len(location))
 			d := generateTag(k.ChunkDigest, off, l)
@@ -394,12 +416,23 @@ func readMetadataFromCache(bigData io.Reader) (*metadata, error) {
 	}, nil
 }
 
-func prepareMetadata(manifest []byte) ([]*internal.FileMetadata, error) {
+func prepareMetadata(manifest []byte, format graphdriver.DifferOutputFormat) ([]*internal.FileMetadata, error) {
 	toc, err := unmarshalToc(manifest)
 	if err != nil {
 		// ignore errors here.  They might be caused by a different manifest format.
 		logrus.Debugf("could not unmarshal manifest: %v", err)
 		return nil, nil //nolint: nilnil
+	}
+
+	switch format {
+	case graphdriver.DifferOutputFormatDir:
+	case graphdriver.DifferOutputFormatFlat:
+		toc.Entries, err = makeEntriesFlat(toc.Entries)
+		if err != nil {
+			return nil, err
+		}
+	default:
+		return nil, fmt.Errorf("unknown format %q", format)
 	}
 
 	var r []*internal.FileMetadata
@@ -418,6 +451,7 @@ func prepareMetadata(manifest []byte) ([]*internal.FileMetadata, error) {
 			chunkSeen[cd] = true
 		}
 	}
+
 	return r, nil
 }
 
@@ -456,7 +490,9 @@ func findTag(digest string, metadata *metadata) (string, uint64, uint64) {
 		if digest == d {
 			startOff := i*metadata.tagLen + metadata.digestLen
 			parts := strings.Split(string(metadata.tags[startOff:(i+1)*metadata.tagLen]), "@")
+
 			off, _ := strconv.ParseInt(parts[0], 10, 64)
+
 			len, _ := strconv.ParseInt(parts[1], 10, 64)
 			return digest, uint64(off), uint64(len)
 		}
@@ -473,12 +509,16 @@ func (c *layersCache) findDigestInternal(digest string) (string, string, int64, 
 	defer c.mutex.RUnlock()
 
 	for _, layer := range c.layers {
-		digest, off, len := findTag(digest, layer.metadata)
+		digest, off, tagLen := findTag(digest, layer.metadata)
 		if digest != "" {
-			position := string(layer.metadata.vdata[off : off+len])
-			parts := strings.SplitN(position, "@", 2)
+			position := string(layer.metadata.vdata[off : off+tagLen])
+			parts := strings.SplitN(position, ":", 3)
+			if len(parts) != 3 {
+				continue
+			}
 			offFile, _ := strconv.ParseInt(parts[0], 10, 64)
-			return layer.target, parts[1], offFile, nil
+			// parts[1] is the chunk length, currently unused.
+			return layer.target, parts[2], offFile, nil
 		}
 	}
 
@@ -514,14 +554,14 @@ func unmarshalToc(manifest []byte) (*internal.TOC, error) {
 
 	iter := jsoniter.ParseBytes(jsoniter.ConfigFastest, manifest)
 	for field := iter.ReadObject(); field != ""; field = iter.ReadObject() {
-		if field != "entries" {
+		if strings.ToLower(field) != "entries" {
 			iter.Skip()
 			continue
 		}
 		for iter.ReadArray() {
 			for field := iter.ReadObject(); field != ""; field = iter.ReadObject() {
-				switch field {
-				case "type", "name", "linkName", "digest", "chunkDigest", "chunkType":
+				switch strings.ToLower(field) {
+				case "type", "name", "linkname", "digest", "chunkdigest", "chunktype", "modtime", "accesstime", "changetime":
 					count += len(iter.ReadStringAsSlice())
 				case "xattrs":
 					for key := iter.ReadObject(); key != ""; key = iter.ReadObject() {
@@ -544,35 +584,38 @@ func unmarshalToc(manifest []byte) (*internal.TOC, error) {
 		return byteSliceAsString(buf.Bytes()[from:to])
 	}
 
-	iter = jsoniter.ParseBytes(jsoniter.ConfigFastest, manifest)
+	pool := iter.Pool()
+	pool.ReturnIterator(iter)
+	iter = pool.BorrowIterator(manifest)
+
 	for field := iter.ReadObject(); field != ""; field = iter.ReadObject() {
-		if field == "version" {
+		if strings.ToLower(field) == "version" {
 			toc.Version = iter.ReadInt()
 			continue
 		}
-		if field != "entries" {
+		if strings.ToLower(field) != "entries" {
 			iter.Skip()
 			continue
 		}
 		for iter.ReadArray() {
 			var m internal.FileMetadata
 			for field := iter.ReadObject(); field != ""; field = iter.ReadObject() {
-				switch field {
+				switch strings.ToLower(field) {
 				case "type":
 					m.Type = getString(iter.ReadStringAsSlice())
 				case "name":
 					m.Name = getString(iter.ReadStringAsSlice())
-				case "linkName":
+				case "linkname":
 					m.Linkname = getString(iter.ReadStringAsSlice())
 				case "mode":
 					m.Mode = iter.ReadInt64()
 				case "size":
 					m.Size = iter.ReadInt64()
-				case "UID":
+				case "uid":
 					m.UID = iter.ReadInt()
-				case "GID":
+				case "gid":
 					m.GID = iter.ReadInt()
-				case "ModTime":
+				case "modtime":
 					time, err := time.Parse(time.RFC3339, byteSliceAsString(iter.ReadStringAsSlice()))
 					if err != nil {
 						return nil, err
@@ -590,23 +633,23 @@ func unmarshalToc(manifest []byte) (*internal.TOC, error) {
 						return nil, err
 					}
 					m.ChangeTime = &time
-				case "devMajor":
+				case "devmajor":
 					m.Devmajor = iter.ReadInt64()
-				case "devMinor":
+				case "devminor":
 					m.Devminor = iter.ReadInt64()
 				case "digest":
 					m.Digest = getString(iter.ReadStringAsSlice())
 				case "offset":
 					m.Offset = iter.ReadInt64()
-				case "endOffset":
+				case "endoffset":
 					m.EndOffset = iter.ReadInt64()
-				case "chunkSize":
+				case "chunksize":
 					m.ChunkSize = iter.ReadInt64()
-				case "chunkOffset":
+				case "chunkoffset":
 					m.ChunkOffset = iter.ReadInt64()
-				case "chunkDigest":
+				case "chunkdigest":
 					m.ChunkDigest = getString(iter.ReadStringAsSlice())
-				case "chunkType":
+				case "chunktype":
 					m.ChunkType = getString(iter.ReadStringAsSlice())
 				case "xattrs":
 					m.Xattrs = make(map[string]string)
@@ -618,10 +661,22 @@ func unmarshalToc(manifest []byte) (*internal.TOC, error) {
 					iter.Skip()
 				}
 			}
+			if m.Type == TypeReg && m.Size == 0 && m.Digest == "" {
+				m.Digest = digestSha256Empty
+			}
 			toc.Entries = append(toc.Entries, m)
 		}
-		break
 	}
+
+	// validate there is no extra data in the provided input.  This is a security measure to avoid
+	// that the digest we calculate for the TOC refers to the entire document.
+	if iter.Error != nil && iter.Error != io.EOF {
+		return nil, iter.Error
+	}
+	if iter.WhatIsNext() != jsoniter.InvalidValue || !errors.Is(iter.Error, io.EOF) {
+		return nil, fmt.Errorf("unexpected data after manifest")
+	}
+
 	toc.StringsBuf = buf
 	return &toc, nil
 }
