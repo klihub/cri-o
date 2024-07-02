@@ -235,3 +235,5 @@ require (
 	tags.cncf.io/container-device-interface/specs-go v0.7.0 // indirect
 	zenhack.net/go/util v0.0.0-20230218002511-744d2d6d1739 // indirect
 )
+
+replace github.com/containerd/nri v0.6.1 => github.com/klihub/nri v0.0.0-20240702121435-68f28b18fedb

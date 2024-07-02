@@ -319,6 +319,11 @@ message LinuxDeviceCgroup {
   string access = 5;
 }
 
+// A CDI device reference.
+message CDIDevice {
+  string name = 1;
+}
+
 // Container (linux) resources.
 message LinuxResources {
   LinuxMemory memory = 1;
@@ -381,6 +386,7 @@ message LinuxContainerAdjustment {
   repeated LinuxDevice devices = 1;
   LinuxResources resources = 2;
   string cgroups_path = 3;
+  repeated CDIDevice CDI_devices = 4;
 }
 
 // Requested update to an already created container.

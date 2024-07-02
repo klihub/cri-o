@@ -90,7 +90,8 @@ func collectCreateContainerResult(request *CreateContainerRequest) *result {
 				Hooks:       &Hooks{},
 				Rlimits:     []*POSIXRlimit{},
 				Linux: &LinuxContainerAdjustment{
-					Devices: []*LinuxDevice{},
+					Devices:    []*LinuxDevice{},
+					CDIDevices: []*CDIDevice{},
 					Resources: &LinuxResources{
 						Memory:         &LinuxMemory{},
 						Cpu:            &LinuxCPU{},
@@ -200,11 +201,14 @@ func (r *result) adjust(rpl *ContainerAdjustment, plugin string) error {
 	if err := r.adjustEnv(rpl.Env, plugin); err != nil {
 		return err
 	}
-	if err := r.adjustHooks(rpl.Hooks, plugin); err != nil {
+	if err := r.adjustHooks(rpl.Hooks); err != nil {
 		return err
 	}
 	if rpl.Linux != nil {
 		if err := r.adjustDevices(rpl.Linux.Devices, plugin); err != nil {
+			return err
+		}
+		if err := r.adjustCDIDevices(rpl.Linux.CDIDevices, plugin); err != nil {
 			return err
 		}
 		if err := r.adjustResources(rpl.Linux.Resources, plugin); err != nil {
@@ -386,6 +390,37 @@ func (r *result) adjustDevices(devices []*LinuxDevice, plugin string) error {
 	return nil
 }
 
+func (r *result) adjustCDIDevices(devices []*CDIDevice, plugin string) error {
+	if len(devices) == 0 {
+		return nil
+	}
+
+	// Notes:
+	//   CDI devices are opaque references, typically to vendor specific
+	//   devices. They get resolved to actual devices and potential related
+	//   mounts, environment variables, etc. in the runtime. Unlike with
+	//   devices, we only allow CDI devices references to be added to a
+	//   container, not removed. We pass them unresolved to the runtime and
+	//   have them resolved there. Also unlike with devices, we don't include
+	//   CDI device references in a creation requests. However, since there
+	//   is typically a strong ownership and a single related management entity
+	//   per vendor/class for these devices we do treat multiple injection of
+	//   the same CDI device reference as an error here.
+
+	id := r.request.create.Container.Id
+
+	// apply additions to collected adjustments
+	for _, d := range devices {
+		if err := r.owners.claimCDIDevice(id, d.Name, plugin); err != nil {
+			return err
+		} else {
+			r.reply.adjust.Linux.CDIDevices = append(r.reply.adjust.Linux.CDIDevices, d)
+		}
+	}
+
+	return nil
+}
+
 func (r *result) adjustEnv(env []*KeyValue, plugin string) error {
 	if len(env) == 0 {
 		return nil
@@ -458,7 +493,7 @@ func splitEnvVar(s string) (string, string) {
 	return split[0], split[1]
 }
 
-func (r *result) adjustHooks(hooks *Hooks, plugin string) error {
+func (r *result) adjustHooks(hooks *Hooks) error {
 	if hooks == nil {
 		return nil
 	}
@@ -872,6 +907,7 @@ type owners struct {
 	annotations         map[string]string
 	mounts              map[string]string
 	devices             map[string]string
+	cdiDevices          map[string]string
 	env                 map[string]string
 	memLimit            string
 	memReservation      string
@@ -915,6 +951,10 @@ func (ro resultOwners) claimMount(id, destination, plugin string) error {
 
 func (ro resultOwners) claimDevice(id, path, plugin string) error {
 	return ro.ownersFor(id).claimDevice(path, plugin)
+}
+
+func (ro resultOwners) claimCDIDevice(id, path, plugin string) error {
+	return ro.ownersFor(id).claimCDIDevice(path, plugin)
 }
 
 func (ro resultOwners) claimEnv(id, name, plugin string) error {
@@ -1035,6 +1075,17 @@ func (o *owners) claimDevice(path, plugin string) error {
 		return conflict(plugin, other, "device", path)
 	}
 	o.devices[path] = plugin
+	return nil
+}
+
+func (o *owners) claimCDIDevice(name, plugin string) error {
+	if o.cdiDevices == nil {
+		o.cdiDevices = make(map[string]string)
+	}
+	if other, taken := o.cdiDevices[name]; taken {
+		return conflict(plugin, other, "CDI device", name)
+	}
+	o.cdiDevices[name] = plugin
 	return nil
 }
 
