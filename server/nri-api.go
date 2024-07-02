@@ -14,9 +14,11 @@ import (
 	"github.com/cri-o/cri-o/internal/lib/sandbox"
 	"github.com/cri-o/cri-o/internal/oci"
 	"github.com/cri-o/cri-o/pkg/annotations"
+	"github.com/opencontainers/runtime-spec/specs-go"
 	rspec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/opencontainers/runtime-tools/generate"
 	cri "k8s.io/cri-api/pkg/apis/runtime/v1"
+	"tags.cncf.io/container-device-interface/pkg/cdi"
 
 	"github.com/containerd/nri/pkg/api"
 	nrigen "github.com/containerd/nri/pkg/runtime-tools/generate"
@@ -159,6 +161,29 @@ func (a *nriAPI) createContainer(ctx context.Context, specgen *generate.Generato
 				return &rspec.LinuxIntelRdt{
 					ClosID: rdt.ResctrlPrefix + className,
 				}, nil
+			},
+		),
+		nrigen.WithCDIDeviceInjector(
+			func(s *specs.Spec, devices []string) error {
+				if len(devices) == 0 {
+					return nil
+				}
+
+				if err := cdi.Refresh(); err != nil {
+					// We don't consider a refresh failure a fatal error.
+					// For instance, a dynamically generated invalid CDI Spec file for
+					// any particular vendor shouldn't prevent injection of devices of
+					// different vendors. CDI itself knows better and it will fail the
+					// injection if necessary.
+
+					log.Warnf(context.TODO(), "CDI registry refresh failed: %w", err)
+				}
+
+				if _, err := cdi.InjectDevices(s, devices...); err != nil {
+					return fmt.Errorf("CDI device injection failed: %w", err)
+				}
+
+				return nil
 			},
 		),
 	)
