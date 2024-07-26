@@ -11,6 +11,7 @@ package copy
 #endif
 */
 import "C"
+
 import (
 	"container/list"
 	"errors"
@@ -49,13 +50,13 @@ func CopyRegularToFile(srcPath string, dstFile *os.File, fileinfo os.FileInfo, c
 	defer srcFile.Close()
 
 	if *copyWithFileClone {
-		_, _, err = unix.Syscall(unix.SYS_IOCTL, dstFile.Fd(), C.FICLONE, srcFile.Fd())
-		if err == nil {
+		_, _, errno := unix.Syscall(unix.SYS_IOCTL, dstFile.Fd(), C.FICLONE, srcFile.Fd())
+		if errno == 0 {
 			return nil
 		}
 
 		*copyWithFileClone = false
-		if err == unix.EXDEV {
+		if errno == unix.EXDEV {
 			*copyWithFileRange = false
 		}
 	}

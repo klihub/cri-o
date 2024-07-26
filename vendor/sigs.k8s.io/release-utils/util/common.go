@@ -39,10 +39,10 @@ const (
 )
 
 var (
-	regexpCRLF       *regexp.Regexp = regexp.MustCompile(`\015$`)
-	regexpCtrlChar   *regexp.Regexp = regexp.MustCompile(`\x1B[\[(](\d{1,2}(;\d{1,2})?)?[mKB]`)
-	regexpOauthToken *regexp.Regexp = regexp.MustCompile(`[a-f0-9]{40}:x-oauth-basic`)
-	regexpGitToken   *regexp.Regexp = regexp.MustCompile(`git:[a-f0-9]{35,40}@github\.com`)
+	regexpCRLF       = regexp.MustCompile(`\015$`)
+	regexpCtrlChar   = regexp.MustCompile(`\x1B[\[(](\d{1,2}(;\d{1,2})?)?[mKB]`)
+	regexpOauthToken = regexp.MustCompile(`[a-f0-9]{40}:x-oauth-basic`)
+	regexpGitToken   = regexp.MustCompile(`git:[a-f0-9]{35,40}@github\.com`)
 )
 
 // UserInputError a custom error to handle more user input info
@@ -256,7 +256,7 @@ func readInput(question string) (string, error) {
 // return "defaultAnswer" as success.
 //
 // To consider the default as a success, simply list them with the rest of the
-// non successfule answers.
+// non successful answers.
 func Ask(question, expectedResponse string, retries int) (answer string, success bool, err error) {
 	attempts := 1
 
@@ -283,7 +283,7 @@ func Ask(question, expectedResponse string, retries int) (answer string, success
 		if strings.Contains(expectedResponse, parts[0]) {
 			successAnswers = strings.Split(parts[0], optsSeparator)
 		}
-		// If there is a seconf part, its non success, but expected responses
+		// If there is a second part, its non success, but expected responses
 		if len(parts) >= 2 {
 			if strings.Contains(parts[1], optsSeparator) {
 				nonSuccessAnswers = strings.Split(parts[1], optsSeparator)
