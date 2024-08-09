@@ -42,11 +42,9 @@ func main() {
         mpb.BarStyle().Lbound("╢").Filler("▌").Tip("▌").Padding("░").Rbound("╟"),
         mpb.PrependDecorators(
             // display our name with one space on the right
-            decor.Name(name, decor.WC{W: len(name) + 1, C: decor.DidentRight}),
+            decor.Name(name, decor.WC{C: decor.DindentRight | decor.DextraSpace}),
             // replace ETA decorator with "done" message, OnComplete event
-            decor.OnComplete(
-                decor.AverageETA(decor.ET_STYLE_GO, decor.WC{W: 4}), "done",
-            ),
+            decor.OnComplete(decor.AverageETA(decor.ET_STYLE_GO), "done"),
         ),
         mpb.AppendDecorators(decor.Percentage()),
     )
@@ -82,8 +80,8 @@ func main() {
             mpb.AppendDecorators(
                 // replace ETA decorator with "done" message, OnComplete event
                 decor.OnComplete(
-                    // ETA decorator with ewma age of 60
-                    decor.EwmaETA(decor.ET_STYLE_GO, 60, decor.WCSyncWidth), "done",
+                    // ETA decorator with ewma age of 30
+                    decor.EwmaETA(decor.ET_STYLE_GO, 30, decor.WCSyncWidth), "done",
                 ),
             ),
         )
