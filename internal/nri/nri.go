@@ -180,10 +180,11 @@ func (l *local) UpdatePodSandbox(ctx context.Context, pod PodSandbox) error {
 	l.Lock()
 	defer l.Unlock()
 
+	podNri := podSandboxToNRI(pod)
 	request := &nri.UpdatePodSandboxRequest{
-		Pod:                    podSandboxToNRI(pod),
-		OverheadLinuxResources: &nri.LinuxResources{},
-		LinuxResources:         &nri.LinuxResources{},
+		Pod:                    podNri,
+		OverheadLinuxResources: podNri.Linux.GetPodOverhead(),
+		LinuxResources:         podNri.Linux.GetPodResources(),
 	}
 
 	_, err := l.nri.UpdatePodSandbox(ctx, request)
