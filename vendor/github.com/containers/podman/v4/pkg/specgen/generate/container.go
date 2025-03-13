@@ -1,3 +1,6 @@
+//go:build !remote
+// +build !remote
+
 package generate
 
 import (
@@ -68,11 +71,6 @@ func CompleteSpec(ctx context.Context, r *libpod.Runtime, s *specgen.SpecGenerat
 		return nil, err
 	}
 	if inspectData != nil {
-		inspectData, err = newImage.Inspect(ctx, nil)
-		if err != nil {
-			return nil, err
-		}
-
 		if s.HealthConfig == nil {
 			// NOTE: the health check is only set for Docker images
 			// but inspect will take care of it.
@@ -130,15 +128,27 @@ func CompleteSpec(ctx context.Context, r *libpod.Runtime, s *specgen.SpecGenerat
 		defaultEnvs = envLib.Join(envLib.DefaultEnvVariables(), envLib.Join(defaultEnvs, envs))
 	}
 
+	// add default terminal to env if tty flag is set
+	_, ok := defaultEnvs["TERM"]
+	if s.Terminal && !ok {
+		defaultEnvs["TERM"] = "xterm"
+	}
+
 	for _, e := range s.EnvMerge {
 		processedWord, err := imagebuilder.ProcessWord(e, envLib.Slice(defaultEnvs))
 		if err != nil {
 			return nil, fmt.Errorf("unable to process variables for --env-merge %s: %w", e, err)
 		}
-		splitWord := strings.Split(processedWord, "=")
-		if _, ok := defaultEnvs[splitWord[0]]; ok {
-			defaultEnvs[splitWord[0]] = splitWord[1]
+
+		key, val, found := strings.Cut(processedWord, "=")
+		if !found {
+			return nil, fmt.Errorf("missing `=` for --env-merge substitution %s", e)
 		}
+
+		// the env var passed via --env-merge
+		// need not be defined in the image
+		// continue with an empty string
+		defaultEnvs[key] = val
 	}
 
 	for _, e := range s.UnsetEnv {
@@ -227,7 +237,7 @@ func CompleteSpec(ctx context.Context, r *libpod.Runtime, s *specgen.SpecGenerat
 		}
 	}
 
-	for _, v := range rtc.Containers.Annotations {
+	for _, v := range rtc.Containers.Annotations.Get() {
 		split := strings.SplitN(v, "=", 2)
 		k := split[0]
 		v := ""

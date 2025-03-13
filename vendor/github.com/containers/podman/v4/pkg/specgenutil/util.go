@@ -285,6 +285,9 @@ func CreateExitCommandArgs(storageConfig storageTypes.StoreOptions, config *conf
 		"--db-backend", config.Engine.DBBackend,
 		fmt.Sprintf("--transient-store=%t", storageConfig.TransientStore),
 	}
+	if storageConfig.ImageStore != "" {
+		command = append(command, []string{"--imagestore", storageConfig.ImageStore}...)
+	}
 	if config.Engine.OCIRuntime != "" {
 		command = append(command, []string{"--runtime", config.Engine.OCIRuntime}...)
 	}
@@ -301,6 +304,13 @@ func CreateExitCommandArgs(storageConfig storageTypes.StoreOptions, config *conf
 	if syslog {
 		command = append(command, "--syslog")
 	}
+
+	// Make sure that loaded containers.conf modules are passed down to the
+	// callback as well.
+	for _, module := range config.LoadedModules() {
+		command = append(command, "--module", module)
+	}
+
 	command = append(command, []string{"container", "cleanup"}...)
 
 	if rm {

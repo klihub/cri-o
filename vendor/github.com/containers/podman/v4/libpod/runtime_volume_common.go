@@ -1,4 +1,5 @@
-//go:build linux || freebsd
+//go:build !remote && (linux || freebsd)
+// +build !remote
 // +build linux freebsd
 
 package libpod
@@ -54,12 +55,18 @@ func (r *Runtime) newVolume(ctx context.Context, noCreatePluginVolume bool, opti
 	volume.config.CreatedTime = time.Now()
 
 	// Check if volume with given name exists.
-	if !volume.ignoreIfExists {
-		exists, err := r.state.HasVolume(volume.config.Name)
-		if err != nil {
-			return nil, fmt.Errorf("checking if volume with name %s exists: %w", volume.config.Name, err)
-		}
-		if exists {
+	exists, err := r.state.HasVolume(volume.config.Name)
+	if err != nil {
+		return nil, fmt.Errorf("checking if volume with name %s exists: %w", volume.config.Name, err)
+	}
+	if exists {
+		if volume.ignoreIfExists {
+			existingVolume, err := r.state.Volume(volume.config.Name)
+			if err != nil {
+				return nil, fmt.Errorf("reading volume from state: %w", err)
+			}
+			return existingVolume, nil
+		} else {
 			return nil, fmt.Errorf("volume with name %s already exists: %w", volume.config.Name, define.ErrVolumeExists)
 		}
 	}
@@ -78,7 +85,7 @@ func (r *Runtime) newVolume(ctx context.Context, noCreatePluginVolume bool, opti
 		for key, val := range volume.config.Options {
 			switch strings.ToLower(key) {
 			case "device":
-				if strings.ToLower(volume.config.Options["type"]) == "bind" {
+				if strings.ToLower(volume.config.Options["type"]) == define.TypeBind {
 					if _, err := os.Stat(val); err != nil {
 						return nil, fmt.Errorf("invalid volume option %s for driver 'local': %w", key, err)
 					}
@@ -172,28 +179,31 @@ func (r *Runtime) newVolume(ctx context.Context, noCreatePluginVolume bool, opti
 		if err := LabelVolumePath(fullVolPath, volume.config.MountLabel); err != nil {
 			return nil, err
 		}
-		if volume.config.DisableQuota {
+		switch {
+		case volume.config.DisableQuota:
 			if volume.config.Size > 0 || volume.config.Inodes > 0 {
 				return nil, errors.New("volume options size and inodes cannot be used without quota")
 			}
-		} else {
+		case volume.config.Options["type"] == define.TypeTmpfs:
+			// tmpfs only supports Size
+			if volume.config.Inodes > 0 {
+				return nil, errors.New("volume option inodes not supported on tmpfs filesystem")
+			}
+		case volume.config.Inodes > 0 || volume.config.Size > 0:
 			projectQuotaSupported := false
 			q, err := quota.NewControl(r.config.Engine.VolumePath)
 			if err == nil {
 				projectQuotaSupported = true
 			}
-			quota := quota.Quota{}
-			if volume.config.Size > 0 || volume.config.Inodes > 0 {
-				if !projectQuotaSupported {
-					return nil, errors.New("volume options size and inodes not supported. Filesystem does not support Project Quota")
-				}
-				quota.Size = volume.config.Size
-				quota.Inodes = volume.config.Inodes
+			if !projectQuotaSupported {
+				return nil, errors.New("volume options size and inodes not supported. Filesystem does not support Project Quota")
 			}
-			if projectQuotaSupported {
-				if err := q.SetQuota(fullVolPath, quota); err != nil {
-					return nil, fmt.Errorf("failed to set size quota size=%d inodes=%d for volume directory %q: %w", volume.config.Size, volume.config.Inodes, fullVolPath, err)
-				}
+			quota := quota.Quota{
+				Inodes: volume.config.Inodes,
+				Size:   volume.config.Size,
+			}
+			if err := q.SetQuota(fullVolPath, quota); err != nil {
+				return nil, fmt.Errorf("failed to set size quota size=%d inodes=%d for volume directory %q: %w", volume.config.Size, volume.config.Inodes, fullVolPath, err)
 			}
 		}
 
@@ -219,13 +229,6 @@ func (r *Runtime) newVolume(ctx context.Context, noCreatePluginVolume bool, opti
 
 	// Add the volume to state
 	if err := r.state.AddVolume(volume); err != nil {
-		if volume.ignoreIfExists && errors.Is(err, define.ErrVolumeExists) {
-			existingVolume, err := r.state.Volume(volume.config.Name)
-			if err != nil {
-				return nil, fmt.Errorf("reading volume from state: %w", err)
-			}
-			return existingVolume, nil
-		}
 		return nil, fmt.Errorf("adding volume to state: %w", err)
 	}
 	defer volume.newVolumeEvent(events.Create)
@@ -388,7 +391,11 @@ func (r *Runtime) removeVolume(ctx context.Context, v *Volume, force bool, timeo
 
 			logrus.Debugf("Removing container %s (depends on volume %q)", ctr.ID(), v.Name())
 
-			if err := r.removeContainer(ctx, ctr, force, false, false, false, timeout); err != nil {
+			opts := ctrRmOpts{
+				Force:   force,
+				Timeout: timeout,
+			}
+			if _, _, err := r.removeContainer(ctx, ctr, opts); err != nil {
 				return fmt.Errorf("removing container %s that depends on volume %s: %w", ctr.ID(), v.Name(), err)
 			}
 		}
