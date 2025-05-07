@@ -20,7 +20,7 @@ func (s *Server) UpdatePodSandboxResources(ctx context.Context, req *types.Updat
 		return nil, status.Errorf(codes.NotFound, "could not find pod %q: %v", req.PodSandboxId, err)
 	}
 
-	err = s.nri.updatePodSandbox(ctx, sb)
+	err = s.nri.updatePodSandbox(ctx, sb, req.GetOverhead(), req.GetResources())
 	if err != nil {
 		return nil, err
 	}
