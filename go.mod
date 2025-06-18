@@ -63,7 +63,7 @@ require (
 	github.com/syndtr/gocapability v0.0.0-20200815063812-42c35b437635
 	github.com/uptrace/opentelemetry-go-extra/otellogrus v0.2.0
 	github.com/urfave/cli/v2 v2.25.3
-	github.com/vishvananda/netlink v1.2.1-beta.2
+	github.com/vishvananda/netlink v1.3.1
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.42.0
 	go.opentelemetry.io/otel v1.16.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.15.1
@@ -71,7 +71,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.16.0
 	golang.org/x/net v0.10.0
 	golang.org/x/sync v0.2.0
-	golang.org/x/sys v0.8.0
+	golang.org/x/sys v0.10.0
 	google.golang.org/grpc v1.55.0
 	google.golang.org/protobuf v1.30.0
 	k8s.io/api v0.27.0
@@ -209,7 +209,7 @@ require (
 	github.com/uptrace/opentelemetry-go-extra/otelutil v0.2.0 // indirect
 	github.com/vbatts/tar-split v0.11.3 // indirect
 	github.com/vbauerster/mpb/v8 v8.3.0 // indirect
-	github.com/vishvananda/netns v0.0.4 // indirect
+	github.com/vishvananda/netns v0.0.5 // indirect
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
 	github.com/xrash/smetrics v0.0.0-20201216005158-039620a65673 // indirect
 	go.etcd.io/bbolt v1.3.7 // indirect
