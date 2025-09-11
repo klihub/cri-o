@@ -684,50 +684,45 @@ func mergeNRIConfig(config *libconfig.Config, ctx *cli.Context) {
 	}
 
 	if ctx.IsSet("nri-enable-default-validator") {
-		config.NRI.DefaultValidator.Enable = ctx.Bool("nri-enable-default-validator")
+		config.NRI.DefaultValidator.EnableValidator = ctx.Bool("nri-enable-default-validator")
 	}
 
 	if ctx.IsSet("nri-validator-reject-oci-hook-adjustment") {
-		config.NRI.DefaultValidator.RejectOCIHookAdjustment = ctx.Bool(
+		config.NRI.DefaultValidator.RejectOCIHooks = ctx.Bool(
 			"nri-validator-reject-oci-hook-adjustment",
 		)
 	}
 
 	if ctx.IsSet("nri-validator-reject-runtime-default-seccomp-adjustment") {
-		config.NRI.DefaultValidator.RejectRuntimeDefaultSeccompAdjustment = ctx.Bool(
+		config.NRI.DefaultValidator.RejectRuntimeDefaultSeccomp = ctx.Bool(
 			"nri-validator-reject-runtime-default-seccomp-adjustment",
 		)
 	}
 
 	if ctx.IsSet("nri-validator-reject-unconfined-seccomp-adjustment") {
-		config.NRI.DefaultValidator.RejectUnconfinedSeccompAdjustment = ctx.Bool(
+		config.NRI.DefaultValidator.RejectUnconfinedSeccomp = ctx.Bool(
 			"nri-validator-reject-unconfined-seccomp-adjustment",
 		)
 	}
 
 	if ctx.IsSet("nri-validator-reject-custom-seccomp-adjustment") {
-		config.NRI.DefaultValidator.RejectCustomSeccompAdjustment = ctx.Bool(
+		config.NRI.DefaultValidator.RejectCustomSeccomp = ctx.Bool(
 			"nri-validator-reject-custom-seccomp-adjustment",
 		)
 	}
 
 	if ctx.IsSet("nri-validator-reject-namespace-adjustment") {
-		config.NRI.DefaultValidator.RejectNamespaceAdjustment = ctx.Bool(
+		config.NRI.DefaultValidator.RejectNamespaces = ctx.Bool(
 			"nri-validator-reject-namespace-adjustment",
 		)
 	}
 
 	if ctx.IsSet("nri-validator-required-plugins") {
-		config.NRI.DefaultValidator.RequiredPlugins = StringSliceTrySplit(
-			ctx,
-			"nri-validator-required-plugins",
-		)
+		config.NRI.DefaultValidator.RequiredPluginList = StringSliceTrySplit(ctx, "nri-validator-required-plugins")
 	}
 
 	if ctx.IsSet("nri-validator-tolerate-missing-plugins-annotation") {
-		config.NRI.DefaultValidator.TolerateMissingAnnotation = ctx.String(
-			"nri-validator-tolerate-missing-plugins-annotation",
-		)
+		config.NRI.DefaultValidator.TolerateMissingPluginsAnnotation = ctx.String("nri-validator-tolerate-missing-plugins-annotation")
 	}
 }
 
@@ -1226,42 +1221,42 @@ func getCrioFlags(defConf *libconfig.Config) []cli.Flag {
 		&cli.BoolFlag{
 			Name:  "nri-enable-default-validator",
 			Usage: "Enable the default NRI validator plugin.",
-			Value: defConf.NRI.DefaultValidator.Enable,
+			Value: defConf.NRI.DefaultValidator.Enable(),
 		},
 		&cli.BoolFlag{
 			Name:  "nri-validator-reject-oci-hook-adjustment",
 			Usage: "Reject NRI plugin adjustment of OCI Hooks.",
-			Value: defConf.NRI.DefaultValidator.RejectOCIHookAdjustment,
+			Value: defConf.NRI.DefaultValidator.RejectOCIHookAdjustment(),
 		},
 		&cli.BoolFlag{
 			Name:  "nri-validator-reject-runtime-default-seccomp-adjustment",
 			Usage: "Reject NRI plugin adjustment of runtime default seccomp policy.",
-			Value: defConf.NRI.DefaultValidator.RejectRuntimeDefaultSeccompAdjustment,
+			Value: defConf.NRI.DefaultValidator.RejectRuntimeDefaultSeccompAdjustment(),
 		},
 		&cli.BoolFlag{
 			Name:  "nri-validator-reject-unconfined-seccomp-adjustment",
 			Usage: "Reject NRI plugin adjustment of unconfined seccomp policy.",
-			Value: defConf.NRI.DefaultValidator.RejectUnconfinedSeccompAdjustment,
+			Value: defConf.NRI.DefaultValidator.RejectUnconfinedSeccompAdjustment(),
 		},
 		&cli.BoolFlag{
 			Name:  "nri-validator-reject-custom-seccomp-adjustment",
 			Usage: "Reject NRI plugin adjustment of custom seccomp policy.",
-			Value: defConf.NRI.DefaultValidator.RejectCustomSeccompAdjustment,
+			Value: defConf.NRI.DefaultValidator.RejectCustomSeccompAdjustment(),
 		},
 		&cli.BoolFlag{
 			Name:  "nri-validator-reject-namespace-adjustment",
 			Usage: "Reject NRI plugin adjustment of linux namespaces.",
-			Value: defConf.NRI.DefaultValidator.RejectNamespaceAdjustment,
+			Value: defConf.NRI.DefaultValidator.RejectNamespaceAdjustment(),
 		},
 		&cli.StringSliceFlag{
 			Name:  "nri-validator-required-plugins",
 			Usage: "List of required NRI plugins that must be present.",
-			Value: cli.NewStringSlice(defConf.NRI.DefaultValidator.RequiredPlugins...),
+			Value: cli.NewStringSlice(defConf.NRI.DefaultValidator.RequiredPlugins()...),
 		},
 		&cli.StringFlag{
 			Name:  "nri-validator-tolerate-missing-plugins-annotation",
 			Usage: `Name of the annotation used to indicate toleration of missing required NRI plugins.`,
-			Value: defConf.NRI.DefaultValidator.TolerateMissingAnnotation,
+			Value: defConf.NRI.DefaultValidator.TolerateMissingAnnotation(),
 		},
 		&cli.StringFlag{
 			Name:    "big-files-temporary-dir",

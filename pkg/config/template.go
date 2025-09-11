@@ -787,6 +787,16 @@ func initCrioTemplateConfig(c *Config) ([]*templateConfigValue, error) {
 			group:          crioNRIConfig,
 			isDefaultValue: dc.NRI.IsDefaultValidatorDefaultConfig(),
 		},
+		{
+			templateString: templateStringCrioNRIValidatorRoles,
+			group:          crioNRIConfig,
+			isDefaultValue: len(c.NRI.DefaultValidator.RoleOverrides()) == 0,
+		},
+		{
+			templateString: templateStringCrioNRIPluginRoles,
+			group:          crioNRIConfig,
+			isDefaultValue: len(c.NRI.PluginRoles) == 0,
+		},
 	}
 
 	return crioTemplateConfig, nil
@@ -1904,4 +1914,31 @@ const templateStringCrioNRIDefaultValidator = `# NRI default validator configura
 {{ range $p := .NRI.DefaultValidator.RequiredPlugins }}{{ $.Comment }}{{ printf "\t%q,\n" $p }}{{ end }}{{ $.Comment }}]
 {{ $.Comment }}nri_validator_tolerate_missing_plugins_annotation = "{{ .NRI.DefaultValidator.TolerateMissingAnnotation }}"
 
+`
+
+const templateStringCrioNRIValidatorRoles = `# Per role overrides of the default validator restrictions. Plugins which
+# authenticate themselves are assigned a role. The restrictions configured
+# for that role override the ones configured above. A plugin without a role,
+# including any plugin which does not authenticate itself, is restricted by
+# the configuration above.
+#
+{{ range $role, $cfg := .NRI.DefaultValidator.RoleOverrides }}{{ $.Comment }}[crio.nri.default_validator.roles.{{ $role }}]
+{{ if $cfg.RejectOCIHookAdjustment }}{{ $.Comment }}reject_oci_hook_adjustment = {{ $cfg.RejectOCIHookAdjustment }}
+{{ end }}{{ if $cfg.RejectRuntimeDefaultSeccompAdjustment }}{{ $.Comment }}reject_runtime_default_seccomp_adjustment = {{ $cfg.RejectRuntimeDefaultSeccompAdjustment }}
+{{ end }}{{ if $cfg.RejectUnconfinedSeccompAdjustment }}{{ $.Comment }}reject_unconfined_seccomp_adjustment = {{ $cfg.RejectUnconfinedSeccompAdjustment }}
+{{ end }}{{ if $cfg.RejectCustomSeccompAdjustment }}{{ $.Comment }}reject_custom_seccomp_adjustment = {{ $cfg.RejectCustomSeccompAdjustment }}
+{{ end }}{{ if $cfg.RejectNamespaceAdjustment }}{{ $.Comment }}reject_namespace_adjustment = {{ $cfg.RejectNamespaceAdjustment }}
+{{ end }}{{ end }}
+`
+
+const templateStringCrioNRIPluginRoles = `# Plugin authentication configuration. A role has a set of public keys and
+# an optional set of opaque tags. A plugin which authenticates itself with
+# a matching key is assigned that role. Tags carry no meaning for NRI or
+# for the default validator, but they are passed to custom validators.
+#
+{{ range $role, $cfg := .NRI.PluginRoles }}{{ $.Comment }}[crio.nri.plugin_roles.{{ $role }}]
+{{ $.Comment }}keys = [
+{{ range $key := $cfg.Keys }}{{ $.Comment }}{{ printf "\t%q,\n" $key }}{{ end }}{{ $.Comment }}]
+{{ if $cfg.Tags }}{{ $.Comment }}[crio.nri.plugin_roles.{{ $role }}.tags]
+{{ range $tag, $value := $cfg.Tags }}{{ $.Comment }}{{ printf "%s = %q\n" $tag $value }}{{ end }}{{ end }}{{ end }}
 `

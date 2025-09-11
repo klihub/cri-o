@@ -1,6 +1,8 @@
 package nri
 
 import (
+	"fmt"
+	"maps"
 	"slices"
 	"time"
 
@@ -20,18 +22,95 @@ type Config struct {
 	PluginRequestTimeout      time.Duration `toml:"nri_plugin_request_timeout"`
 	DisableConnections        bool          `toml:"nri_disable_connections"`
 	withTracing               bool
+	PluginRoles               map[string]*nri.Role    `toml:"plugin_roles"`
 	DefaultValidator          *DefaultValidatorConfig `toml:"default_validator"`
 }
 
+// DefaultValidatorConfig is the CRI-O configuration for the built-in NRI
+// default validator. The restrictions are configured with CRI-O specific
+// keys, while per role overrides reuse the NRI configuration as such.
 type DefaultValidatorConfig struct {
-	Enable                                bool     `toml:"nri_enable_default_validator"`
-	RejectOCIHookAdjustment               bool     `toml:"nri_validator_reject_oci_hook_adjustment"`
-	RejectRuntimeDefaultSeccompAdjustment bool     `toml:"nri_validator_reject_runtime_default_seccomp_adjustment"`
-	RejectUnconfinedSeccompAdjustment     bool     `toml:"nri_validator_reject_unconfined_seccomp_adjustment"`
-	RejectCustomSeccompAdjustment         bool     `toml:"nri_validator_reject_custom_seccomp_adjustment"`
-	RejectNamespaceAdjustment             bool     `toml:"nri_validator_reject_namespace_adjustment"`
-	RequiredPlugins                       []string `toml:"nri_validator_required_plugins"`
-	TolerateMissingAnnotation             string   `toml:"nri_validator_tolerate_missing_plugins_annotation"`
+	EnableValidator                  bool     `toml:"nri_enable_default_validator"`
+	RejectOCIHooks                   bool     `toml:"nri_validator_reject_oci_hook_adjustment"`
+	RejectRuntimeDefaultSeccomp      bool     `toml:"nri_validator_reject_runtime_default_seccomp_adjustment"`
+	RejectUnconfinedSeccomp          bool     `toml:"nri_validator_reject_unconfined_seccomp_adjustment"`
+	RejectCustomSeccomp              bool     `toml:"nri_validator_reject_custom_seccomp_adjustment"`
+	RejectNamespaces                 bool     `toml:"nri_validator_reject_namespace_adjustment"`
+	RequiredPluginList               []string `toml:"nri_validator_required_plugins"`
+	TolerateMissingPluginsAnnotation string   `toml:"nri_validator_tolerate_missing_plugins_annotation"`
+
+	// Roles provide per role overrides to the restrictions above.
+	Roles map[string]*validator.Config `toml:"roles"`
+}
+
+func (c *DefaultValidatorConfig) Enable() bool {
+	return c != nil && c.EnableValidator
+}
+
+func (c *DefaultValidatorConfig) RejectOCIHookAdjustment() bool {
+	return c != nil && c.RejectOCIHooks
+}
+
+func (c *DefaultValidatorConfig) RejectRuntimeDefaultSeccompAdjustment() bool {
+	return c != nil && c.RejectRuntimeDefaultSeccomp
+}
+
+func (c *DefaultValidatorConfig) RejectUnconfinedSeccompAdjustment() bool {
+	return c != nil && c.RejectUnconfinedSeccomp
+}
+
+func (c *DefaultValidatorConfig) RejectCustomSeccompAdjustment() bool {
+	return c != nil && c.RejectCustomSeccomp
+}
+
+func (c *DefaultValidatorConfig) RejectNamespaceAdjustment() bool {
+	return c != nil && c.RejectNamespaces
+}
+
+func (c *DefaultValidatorConfig) RequiredPlugins() []string {
+	if c == nil {
+		return nil
+	}
+
+	return c.RequiredPluginList
+}
+
+func (c *DefaultValidatorConfig) TolerateMissingAnnotation() string {
+	if c == nil {
+		return ""
+	}
+
+	return c.TolerateMissingPluginsAnnotation
+}
+
+// RoleOverrides returns the per role overrides of the restrictions.
+func (c *DefaultValidatorConfig) RoleOverrides() map[string]*validator.Config {
+	if c == nil {
+		return nil
+	}
+
+	return c.Roles
+}
+
+// toNRI returns this configuration as NRI default validator configuration.
+func (c *DefaultValidatorConfig) toNRI() *validator.DefaultValidatorConfig {
+	if c == nil {
+		return nil
+	}
+
+	return &validator.DefaultValidatorConfig{
+		Enable: c.EnableValidator,
+		Config: &validator.Config{
+			RejectOCIHookAdjustment:               &c.RejectOCIHooks,
+			RejectRuntimeDefaultSeccompAdjustment: &c.RejectRuntimeDefaultSeccomp,
+			RejectUnconfinedSeccompAdjustment:     &c.RejectUnconfinedSeccomp,
+			RejectCustomSeccompAdjustment:         &c.RejectCustomSeccomp,
+			RejectNamespaceAdjustment:             &c.RejectNamespaces,
+		},
+		Roles:                     c.Roles,
+		RequiredPlugins:           c.RequiredPluginList,
+		TolerateMissingAnnotation: c.TolerateMissingPluginsAnnotation,
+	}
 }
 
 // New returns the default CRI-O NRI configuration.
@@ -54,41 +133,41 @@ func (c *Config) IsDefaultValidatorDefaultConfig() bool {
 func (c *Config) defaultValidatorEqual(o *Config) bool {
 	cv, ov := c.DefaultValidator, o.DefaultValidator
 
-	if cv.Enable != ov.Enable {
+	if cv.Enable() != ov.Enable() {
 		return false
 	}
 
-	if cv.RejectOCIHookAdjustment != ov.RejectOCIHookAdjustment {
+	if cv.RejectOCIHookAdjustment() != ov.RejectOCIHookAdjustment() {
 		return false
 	}
 
-	if cv.RejectRuntimeDefaultSeccompAdjustment != ov.RejectRuntimeDefaultSeccompAdjustment {
+	if cv.RejectRuntimeDefaultSeccompAdjustment() != ov.RejectRuntimeDefaultSeccompAdjustment() {
 		return false
 	}
 
-	if cv.RejectUnconfinedSeccompAdjustment != ov.RejectUnconfinedSeccompAdjustment {
+	if cv.RejectUnconfinedSeccompAdjustment() != ov.RejectUnconfinedSeccompAdjustment() {
 		return false
 	}
 
-	if cv.RejectCustomSeccompAdjustment != ov.RejectCustomSeccompAdjustment {
+	if cv.RejectCustomSeccompAdjustment() != ov.RejectCustomSeccompAdjustment() {
 		return false
 	}
 
-	if cv.RejectNamespaceAdjustment != ov.RejectNamespaceAdjustment {
+	if cv.RejectNamespaceAdjustment() != ov.RejectNamespaceAdjustment() {
 		return false
 	}
 
-	if len(cv.RequiredPlugins) != len(ov.RequiredPlugins) {
+	if len(cv.RequiredPlugins()) != len(ov.RequiredPlugins()) {
 		return false
 	}
 
-	if cv.TolerateMissingAnnotation != ov.TolerateMissingAnnotation {
+	if cv.TolerateMissingAnnotation() != ov.TolerateMissingAnnotation() {
 		return false
 	}
 
 	if !slices.Equal(
-		slices.Sorted(slices.Values(cv.RequiredPlugins)),
-		slices.Sorted(slices.Values(ov.RequiredPlugins))) {
+		slices.Sorted(slices.Values(cv.RequiredPlugins())),
+		slices.Sorted(slices.Values(ov.RequiredPlugins()))) {
 		return false
 	}
 
@@ -97,6 +176,14 @@ func (c *Config) defaultValidatorEqual(o *Config) bool {
 
 // Validate loads and validates the effective runtime NRI configuration.
 func (c *Config) Validate(onExecution bool) error {
+	if c == nil || len(c.PluginRoles) == 0 {
+		return nil
+	}
+
+	if err := (&nri.AuthConfig{Roles: c.PluginRoles}).Validate(); err != nil {
+		return fmt.Errorf("invalid NRI plugin roles: %w", err)
+	}
+
 	return nil
 }
 
@@ -127,8 +214,12 @@ func (c *Config) ToOptions() []nri.Option {
 		opts = append(opts, nri.WithDisabledExternalConnections())
 	}
 
+	if c != nil && len(c.PluginRoles) > 0 {
+		opts = append(opts, nri.WithAuthConfig(&nri.AuthConfig{Roles: maps.Clone(c.PluginRoles)}))
+	}
+
 	if c != nil && c.DefaultValidator != nil {
-		opts = append(opts, nri.WithDefaultValidator(c.DefaultValidator.ToNRI()))
+		opts = append(opts, nri.WithDefaultValidator(c.DefaultValidator.toNRI()))
 	}
 
 	if c.withTracing {
@@ -158,22 +249,5 @@ func (c *Config) ConfigureTimeouts() {
 
 	if c.PluginRequestTimeout != 0 {
 		nri.SetPluginRequestTimeout(c.PluginRequestTimeout)
-	}
-}
-
-func (c *DefaultValidatorConfig) ToNRI() *validator.DefaultValidatorConfig {
-	if c == nil {
-		return nil
-	}
-
-	return &validator.DefaultValidatorConfig{
-		Enable:                                c.Enable,
-		RejectOCIHookAdjustment:               c.RejectOCIHookAdjustment,
-		RejectRuntimeDefaultSeccompAdjustment: c.RejectRuntimeDefaultSeccompAdjustment,
-		RejectUnconfinedSeccompAdjustment:     c.RejectUnconfinedSeccompAdjustment,
-		RejectCustomSeccompAdjustment:         c.RejectCustomSeccompAdjustment,
-		RejectNamespaceAdjustment:             c.RejectNamespaceAdjustment,
-		RequiredPlugins:                       c.RequiredPlugins,
-		TolerateMissingAnnotation:             c.TolerateMissingAnnotation,
 	}
 }
