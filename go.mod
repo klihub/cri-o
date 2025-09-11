@@ -251,3 +251,5 @@ require (
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.0 // indirect
 	tags.cncf.io/container-device-interface/specs-go v1.0.0 // indirect
 )
+
+replace github.com/containerd/nri => github.com/klihub/nri v0.10.1-0.20250917090042-7739284df7b9

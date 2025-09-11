@@ -253,6 +253,8 @@ message ValidateContainerAdjustmentRequest {
 message PluginInstance {
     string name = 1;
     string index = 2;
+    string role = 3;
+    map<string, string> tags = 4;
 }
 
 message ValidateContainerAdjustmentResponse {
@@ -329,6 +331,7 @@ message Container {
   string status_reason = 18;
   string status_message = 19;
   repeated CDIDevice CDI_devices = 20;
+  User user = 21;
 }
 
 // Possible container states.
@@ -407,6 +410,13 @@ message LinuxDeviceCgroup {
 // A CDI device reference.
 message CDIDevice {
   string name = 1;
+}
+
+// User and group IDs for the container.
+message User {
+  uint32 uid = 1;
+  uint32 gid = 2;
+  repeated uint32 additional_gids = 3;
 }
 
 // Container (linux) resources.
