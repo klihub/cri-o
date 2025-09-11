@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	stdnet "net"
 	"os"
 	"path/filepath"
@@ -28,6 +29,8 @@ import (
 	"time"
 
 	"github.com/containerd/nri/pkg/api"
+	"github.com/containerd/nri/pkg/auth"
+	"github.com/containerd/nri/pkg/auth/ecdh"
 	nrilog "github.com/containerd/nri/pkg/log"
 	"github.com/containerd/nri/pkg/net"
 	"github.com/containerd/nri/pkg/net/multiplex"
@@ -41,7 +44,7 @@ import (
 // least one of these interfaces and this is verified during stub creation.
 // Trying to create a stub for a plugin violating this requirement will fail
 // with and error.
-type Plugin interface{}
+type Plugin any
 
 // ConfigureInterface handles Configure API request.
 type ConfigureInterface interface {
@@ -187,6 +190,11 @@ type Stub interface {
 	RuntimeNRIVersion() string
 	// PluignNRIVersion returns the NRI version used in the plugin/stub.
 	PluginNRIVersion() string
+
+	// GetRole returns the role the plugin was authenticated to, if any.
+	GetRole() string
+	// GetTags returns any tags associated with the plugin's role, if any.
+	GetTags() map[string]string
 }
 
 const (
@@ -194,6 +202,8 @@ const (
 	DefaultRegistrationTimeout = api.DefaultPluginRegistrationTimeout
 	// DefaultRequestTimeout is the default plugin request processing timeout.
 	DefaultRequestTimeout = api.DefaultPluginRequestTimeout
+	// DefaultAuthentication is the name of the default authentication algorithm.
+	DefaultAuthentication = ecdh.Name
 )
 
 var (
@@ -203,6 +213,9 @@ var (
 	// ErrNoService indicates that the stub has no runtime service/connection,
 	// for instance by UpdateContainers on a stub which has not been started.
 	ErrNoService = errors.New("stub: no service/connection")
+
+	// ErrAuth indicates failure to authentication with the runtime.
+	ErrAuth = errors.New("stub: failed to authenticate")
 )
 
 // EventMask holds a mask of events for plugin subscription.
@@ -283,10 +296,43 @@ func WithLogger(logger nrilog.Logger) Option {
 	}
 }
 
+// WithFailurePolicy sets how the runtime handles a failure of the plugin to
+// process a request. A failure is a request timeout, a lost connection or a
+// protocol error. The policy has two independent fields. The default of each
+// field is the behavior of NRI before failure policies existed:
+//
+//   - FailRequest: fail the request with an error. Default: the request
+//     proceeds without the plugin.
+//   - KeepConnected: keep the plugin registered when it exceeds the request
+//     timeout. Default: the runtime disconnects the plugin. A plugin that
+//     loses its connection is always disconnected.
+//
+// An error returned by the plugin always fails the request. A runtime with
+// an NRI version without failure policy support ignores this option.
+func WithFailurePolicy(policy *api.FailurePolicy) Option {
+	return func(s *stub) error {
+		if policy == nil {
+			return fmt.Errorf("nil failure policy")
+		}
+		s.failurePolicy = policy
+		return nil
+	}
+}
+
+// WithAuthentication sets authentication keys for the plugin. The stub will
+// use these keys to authenticate itself with the runtime before registration.
+func WithAuthentication(algorithm string, fetchKeys auth.KeyFetcher) Option {
+	return func(s *stub) error {
+		s.authKeys = fetchKeys
+		s.authAlgo = algorithm
+		return nil
+	}
+}
+
 // stub implements Stub.
 type stub struct {
 	sync.Mutex
-	plugin     interface{}
+	plugin     any
 	handlers   handlers
 	events     api.EventMask
 	name       string
@@ -301,6 +347,10 @@ type stub struct {
 	rpcl       stdnet.Listener
 	rpcs       *ttrpc.Server
 	rpcc       *ttrpc.Client
+	authKeys   auth.KeyFetcher
+	authAlgo   string
+	role       string
+	tags       map[string]string
 	runtime    api.RuntimeService
 	started    bool
 	doneC      chan struct{}
@@ -310,6 +360,7 @@ type stub struct {
 
 	registrationTimeout time.Duration
 	requestTimeout      time.Duration
+	failurePolicy       *api.FailurePolicy
 	runtimeNRIVersion   string
 	pluginNRIVersion    string
 	logger              nrilog.Logger
@@ -337,7 +388,7 @@ type handlers struct {
 }
 
 // New creates a stub with the given plugin and options.
-func New(p interface{}, opts ...Option) (Stub, error) {
+func New(p any, opts ...Option) (Stub, error) {
 	stub := &stub{
 		plugin:     p,
 		name:       os.Getenv(api.PluginNameEnvVar),
@@ -357,11 +408,25 @@ func New(p interface{}, opts ...Option) (Stub, error) {
 		}
 	}
 
+	if stub.authKeys == nil {
+		if dir := os.Getenv(api.PluginAuthKeyDirEnvVar); dir != "" {
+			stub.authKeys = auth.NewFileKeyFetcher(
+				filepath.Join(dir, "private"),
+				filepath.Join(dir, "public"),
+			)
+			if algo := os.Getenv(api.PluginAuthAlgoEnvVar); algo != "" {
+				stub.authAlgo = algo
+			} else {
+				stub.authAlgo = DefaultAuthentication
+			}
+		}
+	}
+
 	if err := stub.setupHandlers(); err != nil {
 		return nil, err
 	}
 
-	if err := stub.ensureIdentity(); err != nil {
+	if err := stub.ensureNameAndIndex(); err != nil {
 		return nil, err
 	}
 
@@ -450,6 +515,11 @@ func (stub *stub) Start(ctx context.Context) (retErr error) {
 	stub.rpcc = rpcc
 
 	stub.runtime = api.NewRuntimeClient(rpcc)
+
+	if err = stub.authenticate(ctx); err != nil {
+		stub.close()
+		return err
+	}
 
 	if err = stub.register(ctx); err != nil {
 		stub.close()
@@ -567,6 +637,14 @@ func (stub *stub) PluginNRIVersion() string {
 	return stub.pluginNRIVersion
 }
 
+func (stub *stub) GetRole() string {
+	return stub.role
+}
+
+func (stub *stub) GetTags() map[string]string {
+	return maps.Clone(stub.tags)
+}
+
 // Connect the plugin to NRI.
 func (stub *stub) connect() error {
 	if stub.conn != nil {
@@ -597,6 +675,70 @@ func (stub *stub) connect() error {
 	}
 
 	stub.conn = conn
+
+	return nil
+}
+
+// Authenticate the plugin with NRI, if we have been set up with keys.
+func (stub *stub) authenticate(ctx context.Context) error {
+	if stub.authKeys == nil {
+		nrilog.Infof(ctx, "No authentication keys set...")
+		return nil
+	}
+
+	defer stub.authKeys.ClearKeys()
+	private, err := stub.authKeys.PrivateKey()
+	if err != nil {
+		return fmt.Errorf("%w: failed to fetch private key: %w", ErrAuth, err)
+	}
+	public, err := stub.authKeys.PublicKey()
+	if err != nil {
+		return fmt.Errorf("%w: failed to fetch public key: %w", ErrAuth, err)
+	}
+
+	impl, err := auth.Get(stub.authAlgo)
+	if err != nil {
+		return fmt.Errorf("%w: failed to set up authentication: %w", ErrAuth, err)
+	}
+
+	algo, err := impl.NewWithKeys(private, public)
+	if err != nil {
+		return fmt.Errorf("%w: failed to set up authentication: %w", ErrAuth, err)
+	}
+
+	client := auth.NewAuthenticationClient(stub.rpcc)
+	ctx, cancel := context.WithTimeout(ctx, stub.requestTimeout)
+	defer cancel()
+
+	rpl, err := client.RequestChallenge(ctx,
+		&auth.RequestChallengeRequest{
+			Algorithm: stub.authAlgo,
+			PublicKey: public,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrAuth, err)
+	}
+
+	response, err := algo.Response(rpl.Challenge, auth.PublicKey(rpl.PublicKey))
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrAuth, err)
+	}
+
+	result, err := client.RespondChallenge(ctx,
+		&auth.RespondChallengeRequest{
+			Response: response,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrAuth, err)
+	}
+
+	nrilog.Infof(ctx, "Authenticated with role %s (tags: %v)...",
+		result.Role, result.Tags)
+
+	stub.role = result.Role
+	stub.tags = result.Tags
 
 	return nil
 }
@@ -709,7 +851,8 @@ func (stub *stub) Configure(ctx context.Context, req *api.ConfigureRequest) (rpl
 	}
 
 	return &api.ConfigureResponse{
-		Events: int32(events),
+		Events:        int32(events),
+		FailurePolicy: stub.failurePolicy,
 	}, nil
 }
 
@@ -971,8 +1114,8 @@ func (stub *stub) ValidateContainerAdjustment(ctx context.Context, req *api.Vali
 	return &api.ValidateContainerAdjustmentResponse{}, nil
 }
 
-// ensureIdentity sets plugin index and name from the binary if those are unset.
-func (stub *stub) ensureIdentity() error {
+// ensureNameAndIndex sets plugin index and name from the binary if those are unset.
+func (stub *stub) ensureNameAndIndex() error {
 	if stub.idx != "" && stub.name != "" {
 		return nil
 	}

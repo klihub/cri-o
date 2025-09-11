@@ -29,6 +29,7 @@ import (
 
 	"github.com/containerd/nri/pkg/adaptation/builtin"
 	"github.com/containerd/nri/pkg/api"
+	"github.com/containerd/nri/pkg/auth"
 	"github.com/containerd/nri/pkg/log"
 	nriver "github.com/containerd/nri/pkg/version"
 	validator "github.com/containerd/nri/plugins/default-validator/builtin"
@@ -70,6 +71,7 @@ type Adaptation struct {
 	clientOpts  []ttrpc.ClientOpts
 	serverOpts  []ttrpc.ServerOpt
 	listener    net.Listener
+	auth        *auth.Config
 	plugins     []*plugin
 	validators  []*plugin
 	builtin     []*builtin.BuiltinPlugin
@@ -168,6 +170,20 @@ func WithDeprecationRecorder(d DeprecationRecorder) Option {
 	}
 }
 
+// WithAuthConfig sets up configuration for plugin authentication.
+// Note that WithAuthConfig does not prevent unauthenticated plugins
+// from registering. Such plugins are registered with no authenticated
+// role.
+func WithAuthConfig(cfg *auth.Config) Option {
+	return func(r *Adaptation) error {
+		if err := cfg.Validate(); err != nil {
+			return err
+		}
+		r.auth = cfg
+		return nil
+	}
+}
+
 // New creates a new NRI Runtime.
 func New(name, version string, syncFn SyncFn, updateFn UpdateFn, opts ...Option) (*Adaptation, error) {
 	var err error
@@ -209,6 +225,13 @@ func New(name, version string, syncFn SyncFn, updateFn UpdateFn, opts ...Option)
 
 	log.Infof(noCtx, "runtime interface created")
 
+	if r.auth != nil {
+		log.Debugf(noCtx, "plugin authentication configuration")
+		for _, role := range r.auth.Roles {
+			log.Debugf(noCtx, "  role %q with %d keys %v", role.Role, len(role.Keys), role.Keys)
+		}
+	}
+
 	return r, nil
 }
 
@@ -248,6 +271,9 @@ func (r *Adaptation) RunPodSandbox(ctx context.Context, req *RunPodSandboxReques
 	defer r.removeClosedPlugins()
 
 	for _, plugin := range r.plugins {
+		if plugin.isClosed() {
+			continue
+		}
 		if _, err := plugin.runPodSandbox(ctx, req); err != nil {
 			return err
 		}
@@ -263,6 +289,9 @@ func (r *Adaptation) UpdatePodSandbox(ctx context.Context, req *UpdatePodSandbox
 	defer r.removeClosedPlugins()
 
 	for _, plugin := range r.plugins {
+		if plugin.isClosed() {
+			continue
+		}
 		_, err := plugin.updatePodSandbox(ctx, req)
 		if err != nil {
 			return nil, err
@@ -279,6 +308,9 @@ func (r *Adaptation) PostUpdatePodSandbox(ctx context.Context, req *PostUpdatePo
 	defer r.removeClosedPlugins()
 
 	for _, plugin := range r.plugins {
+		if plugin.isClosed() {
+			continue
+		}
 		_, err := plugin.postUpdatePodSandbox(ctx, req)
 		if err != nil {
 			return err
@@ -295,6 +327,9 @@ func (r *Adaptation) StopPodSandbox(ctx context.Context, req *StopPodSandboxRequ
 	defer r.removeClosedPlugins()
 
 	for _, plugin := range r.plugins {
+		if plugin.isClosed() {
+			continue
+		}
 		_, err := plugin.stopPodSandbox(ctx, req)
 		if err != nil {
 			return err
@@ -311,6 +346,9 @@ func (r *Adaptation) RemovePodSandbox(ctx context.Context, req *RemovePodSandbox
 	defer r.removeClosedPlugins()
 
 	for _, plugin := range r.plugins {
+		if plugin.isClosed() {
+			continue
+		}
 		_, err := plugin.removePodSandbox(ctx, req)
 		if err != nil {
 			return err
@@ -339,8 +377,11 @@ func (r *Adaptation) CreateContainer(ctx context.Context, req *CreateContainerRe
 	}
 
 	for _, plugin := range r.plugins {
+		if plugin.isClosed() {
+			continue
+		}
 		if validate != nil {
-			validate.AddPlugin(plugin.base, plugin.idx)
+			validate.AddPlugin(plugin.base, plugin.idx, plugin.auth.GetRole())
 		}
 		rpl, err := plugin.createContainer(ctx, req)
 		if err != nil {
@@ -362,6 +403,9 @@ func (r *Adaptation) PostCreateContainer(ctx context.Context, req *PostCreateCon
 	defer r.removeClosedPlugins()
 
 	for _, plugin := range r.plugins {
+		if plugin.isClosed() {
+			continue
+		}
 		_, err := plugin.postCreateContainer(ctx, req)
 		if err != nil {
 			return err
@@ -378,6 +422,9 @@ func (r *Adaptation) StartContainer(ctx context.Context, req *StartContainerRequ
 	defer r.removeClosedPlugins()
 
 	for _, plugin := range r.plugins {
+		if plugin.isClosed() {
+			continue
+		}
 		_, err := plugin.startContainer(ctx, req)
 		if err != nil {
 			return err
@@ -394,6 +441,9 @@ func (r *Adaptation) PostStartContainer(ctx context.Context, req *PostStartConta
 	defer r.removeClosedPlugins()
 
 	for _, plugin := range r.plugins {
+		if plugin.isClosed() {
+			continue
+		}
 		_, err := plugin.postStartContainer(ctx, req)
 		if err != nil {
 			return err
@@ -411,6 +461,9 @@ func (r *Adaptation) UpdateContainer(ctx context.Context, req *UpdateContainerRe
 
 	result := collectUpdateContainerResult(req)
 	for _, plugin := range r.plugins {
+		if plugin.isClosed() {
+			continue
+		}
 		rpl, err := plugin.updateContainer(ctx, req)
 		if err != nil {
 			return nil, err
@@ -431,6 +484,9 @@ func (r *Adaptation) PostUpdateContainer(ctx context.Context, req *PostUpdateCon
 	defer r.removeClosedPlugins()
 
 	for _, plugin := range r.plugins {
+		if plugin.isClosed() {
+			continue
+		}
 		_, err := plugin.postUpdateContainer(ctx, req)
 		if err != nil {
 			return err
@@ -448,6 +504,9 @@ func (r *Adaptation) StopContainer(ctx context.Context, req *StopContainerReques
 
 	result := collectStopContainerResult()
 	for _, plugin := range r.plugins {
+		if plugin.isClosed() {
+			continue
+		}
 		rpl, err := plugin.stopContainer(ctx, req)
 		if err != nil {
 			return nil, err
@@ -468,6 +527,9 @@ func (r *Adaptation) RemoveContainer(ctx context.Context, req *RemoveContainerRe
 	defer r.removeClosedPlugins()
 
 	for _, plugin := range r.plugins {
+		if plugin.isClosed() {
+			continue
+		}
 		_, err := plugin.removeContainer(ctx, req)
 		if err != nil {
 			return err
@@ -497,6 +559,9 @@ func (r *Adaptation) validateContainerAdjustment(ctx context.Context, req *Valid
 	wg := sync.WaitGroup{}
 
 	for _, p := range r.validators {
+		if p.isClosed() {
+			continue
+		}
 		wg.Add(1)
 		go func(p *plugin) {
 			defer wg.Done()
@@ -605,6 +670,12 @@ func (r *Adaptation) stopPlugins() {
 	r.plugins = nil
 }
 
+// removeClosedPlugins removes closed plugins from the registry. The caller
+// must hold the lock. A plugin is closed when a request drops it, or when
+// its connection closes while no request is in progress. It is removed at
+// the end of the next request. Until then, requests skip it: a request
+// relayed to it fails with ttrpc.ErrClosed, and a fail_request policy
+// would fail the request for a plugin that is already gone.
 func (r *Adaptation) removeClosedPlugins() {
 	var active, closed, validators []*plugin
 	for _, p := range r.plugins {

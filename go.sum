@@ -76,8 +76,6 @@ github.com/containerd/go-runc v1.1.0 h1:OX4f+/i2y5sUT7LhmcJH7GYrjjhHa1QI4e8yO0gG
 github.com/containerd/go-runc v1.1.0/go.mod h1:xJv2hFF7GvHtTJd9JqTS2UVxMkULUYw4JN5XAUZqH5U=
 github.com/containerd/log v0.1.0 h1:TCJt7ioM2cr/tfR8GPbGf9/VRAX8D2B4PjzCpfX540I=
 github.com/containerd/log v0.1.0/go.mod h1:VRRf09a7mHDIRezVKTRCrOq78v577GXq3bSa3EhrzVo=
-github.com/containerd/nri v0.12.2 h1:piA7h2QUm0m3+e994qWFPYwnoXXwAphwDc1Ydx1eWi4=
-github.com/containerd/nri v0.12.2/go.mod h1:o6Pz0I/iks9g2KlH3WdgvFtc9rB7k0aeoZCAH01xOGk=
 github.com/containerd/otelttrpc v0.1.0 h1:UOX68eVTE8H/T45JveIg+I22Ev2aFj4qPITCmXsskjw=
 github.com/containerd/otelttrpc v0.1.0/go.mod h1:XhoA2VvaGPW1clB2ULwrBZfXVuEWuyOd2NUD1IM0yTg=
 github.com/containerd/platforms v1.0.0-rc.4 h1:M42JrUT4zfZTqtkUwkr0GzmUWbfyO5VO0Q5b3op97T4=
@@ -310,6 +308,8 @@ github.com/klauspost/cpuid/v2 v2.3.0 h1:S4CRMLnYUhGeDFDqkGriYKdfoFlDnMtqTiI/sFzh
 github.com/klauspost/cpuid/v2 v2.3.0/go.mod h1:hqwkgyIinND0mEev00jJYCxPNVRVXFQeu1XKlok6oO0=
 github.com/klauspost/pgzip v1.2.6 h1:8RXeL5crjEUFnR2/Sn6GJNWtSQ3Dk8pq4CL3jvdDyjU=
 github.com/klauspost/pgzip v1.2.6/go.mod h1:Ch1tH69qFZu15pkjo5kYi6mth2Zzwzt50oCQKQE9RUs=
+github.com/klihub/nri v0.12.6-0.20261104142135-be41b43a1033 h1:uMmxbQY96/ZohRHPYt+lNvl4xRaQmOQOL5RmZRYyXeA=
+github.com/klihub/nri v0.12.6-0.20261104142135-be41b43a1033/go.mod h1:vcIcgzsFFsiZgx/RoOJbUYvjr0jhnjU8SIQOxn56c8U=
 github.com/knqyf263/go-plugin v0.9.0 h1:CQs2+lOPIlkZVtcb835ZYDEoyyWJWLbSTWeCs0EwTwI=
 github.com/knqyf263/go-plugin v0.9.0/go.mod h1:2z5lCO1/pez6qGo8CvCxSlBFSEat4MEp1DrnA+f7w8Q=
 github.com/konsorten/go-windows-terminal-sequences v1.0.1/go.mod h1:T0+1ngSBFLxvqU3pZ+m/2kptfBszLMUkC4ZK/EgS/cQ=

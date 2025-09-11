@@ -169,7 +169,7 @@ func (r *result) stopContainerResponse() *StopContainerResponse {
 	}
 }
 
-func (r *result) apply(response interface{}, plugin string) error {
+func (r *result) apply(response any, plugin string) error {
 	switch rpl := response.(type) {
 	case *CreateContainerResponse:
 		if rpl == nil {
@@ -504,7 +504,7 @@ func (r *result) adjustSysctl(sysctl map[string]string, plugin string) error {
 	}
 
 	for k := range del {
-		r.reply.adjust.Annotations[MarkForRemoval(k)] = ""
+		r.reply.adjust.Linux.Sysctl[MarkForRemoval(k)] = ""
 	}
 
 	return nil
@@ -1145,7 +1145,7 @@ func (r *result) updateResources(reply, u *ContainerUpdate, plugin string) error
 		}
 		resources.RdtClass = String(v.GetValue())
 	}
-	if v := resources.GetPids(); v != nil {
+	if v := u.Linux.Resources.GetPids(); v != nil {
 		if err := r.owners.ClaimPidsLimit(id, plugin); err != nil {
 			return err
 		}

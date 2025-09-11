@@ -18,6 +18,7 @@ package adaptation
 
 import (
 	"github.com/containerd/nri/pkg/api"
+	"github.com/containerd/nri/pkg/auth"
 )
 
 //
@@ -75,6 +76,9 @@ type (
 	ValidateContainerAdjustmentResponse = api.ValidateContainerAdjustmentResponse
 	PluginInstance                      = api.PluginInstance
 
+	Role       = auth.Role
+	AuthConfig = auth.Config
+
 	PodSandbox               = api.PodSandbox
 	LinuxPodSandbox          = api.LinuxPodSandbox
 	Container                = api.Container
@@ -110,8 +114,9 @@ type (
 	User                     = api.User
 	Image                    = api.Image
 
-	Event     = api.Event
-	EventMask = api.EventMask
+	Event         = api.Event
+	EventMask     = api.EventMask
+	FailurePolicy = api.FailurePolicy
 )
 
 // Aliased consts for api/api.proto.
