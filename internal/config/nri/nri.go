@@ -20,18 +20,68 @@ type Config struct {
 	PluginRequestTimeout      time.Duration `toml:"nri_plugin_request_timeout"`
 	DisableConnections        bool          `toml:"nri_disable_connections"`
 	withTracing               bool
+	PluginRoles               map[string]*nri.Role    `toml:"plugin_roles"`
 	DefaultValidator          *DefaultValidatorConfig `toml:"default_validator"`
 }
 
 type DefaultValidatorConfig struct {
-	Enable                                bool     `toml:"nri_enable_default_validator"`
-	RejectOCIHookAdjustment               bool     `toml:"nri_validator_reject_oci_hook_adjustment"`
-	RejectRuntimeDefaultSeccompAdjustment bool     `toml:"nri_validator_reject_runtime_default_seccomp_adjustment"`
-	RejectUnconfinedSeccompAdjustment     bool     `toml:"nri_validator_reject_unconfined_seccomp_adjustment"`
-	RejectCustomSeccompAdjustment         bool     `toml:"nri_validator_reject_custom_seccomp_adjustment"`
-	RejectNamespaceAdjustment             bool     `toml:"nri_validator_reject_namespace_adjustment"`
-	RequiredPlugins                       []string `toml:"nri_validator_required_plugins"`
-	TolerateMissingAnnotation             string   `toml:"nri_validator_tolerate_missing_plugins_annotation"`
+	*validator.DefaultValidatorConfig
+}
+
+func (c *DefaultValidatorConfig) Enable() bool {
+	if c == nil || c.DefaultValidatorConfig == nil {
+		return false
+	}
+	return c.DefaultValidatorConfig.Enable
+}
+
+func (c *DefaultValidatorConfig) RejectOCIHookAdjustment() bool {
+	if c == nil || c.DefaultValidatorConfig == nil || c.Config == nil {
+		return false
+	}
+	return c.Config.RejectOCIHookAdjustment != nil && *c.Config.RejectOCIHookAdjustment
+}
+
+func (c *DefaultValidatorConfig) RejectRuntimeDefaultSeccompAdjustment() bool {
+	if c == nil || c.DefaultValidatorConfig == nil || c.Config == nil {
+		return false
+	}
+	return c.Config.RejectRuntimeDefaultSeccompAdjustment != nil && *c.Config.RejectRuntimeDefaultSeccompAdjustment
+}
+
+func (c *DefaultValidatorConfig) RejectUnconfinedSeccompAdjustment() bool {
+	if c == nil || c.DefaultValidatorConfig == nil || c.Config == nil {
+		return false
+	}
+	return c.Config.RejectUnconfinedSeccompAdjustment != nil && *c.Config.RejectUnconfinedSeccompAdjustment
+}
+
+func (c *DefaultValidatorConfig) RejectCustomSeccompAdjustment() bool {
+	if c == nil || c.DefaultValidatorConfig == nil || c.Config == nil {
+		return false
+	}
+	return c.Config.RejectCustomSeccompAdjustment != nil && *c.Config.RejectCustomSeccompAdjustment
+}
+
+func (c *DefaultValidatorConfig) RejectNamespaceAdjustment() bool {
+	if c == nil || c.DefaultValidatorConfig == nil || c.Config == nil {
+		return false
+	}
+	return c.Config.RejectNamespaceAdjustment != nil && *c.Config.RejectNamespaceAdjustment
+}
+
+func (c *DefaultValidatorConfig) RequiredPlugins() []string {
+	if c == nil || c.DefaultValidatorConfig == nil {
+		return nil
+	}
+	return c.DefaultValidatorConfig.RequiredPlugins
+}
+
+func (c *DefaultValidatorConfig) TolerateMissingAnnotation() string {
+	if c == nil || c.DefaultValidatorConfig == nil {
+		return ""
+	}
+	return c.DefaultValidatorConfig.TolerateMissingAnnotation
 }
 
 // New returns the default CRI-O NRI configuration.
@@ -54,41 +104,41 @@ func (c *Config) IsDefaultValidatorDefaultConfig() bool {
 func (c *Config) defaultValidatorEqual(o *Config) bool {
 	cv, ov := c.DefaultValidator, o.DefaultValidator
 
-	if cv.Enable != ov.Enable {
+	if cv.Enable() != ov.Enable() {
 		return false
 	}
 
-	if cv.RejectOCIHookAdjustment != ov.RejectOCIHookAdjustment {
+	if cv.RejectOCIHookAdjustment() != ov.RejectOCIHookAdjustment() {
 		return false
 	}
 
-	if cv.RejectRuntimeDefaultSeccompAdjustment != ov.RejectRuntimeDefaultSeccompAdjustment {
+	if cv.RejectRuntimeDefaultSeccompAdjustment() != ov.RejectRuntimeDefaultSeccompAdjustment() {
 		return false
 	}
 
-	if cv.RejectUnconfinedSeccompAdjustment != ov.RejectUnconfinedSeccompAdjustment {
+	if cv.RejectUnconfinedSeccompAdjustment() != ov.RejectUnconfinedSeccompAdjustment() {
 		return false
 	}
 
-	if cv.RejectCustomSeccompAdjustment != ov.RejectCustomSeccompAdjustment {
+	if cv.RejectCustomSeccompAdjustment() != ov.RejectCustomSeccompAdjustment() {
 		return false
 	}
 
-	if cv.RejectNamespaceAdjustment != ov.RejectNamespaceAdjustment {
+	if cv.RejectNamespaceAdjustment() != ov.RejectNamespaceAdjustment() {
 		return false
 	}
 
-	if len(cv.RequiredPlugins) != len(ov.RequiredPlugins) {
+	if len(cv.RequiredPlugins()) != len(ov.RequiredPlugins()) {
 		return false
 	}
 
-	if cv.TolerateMissingAnnotation != ov.TolerateMissingAnnotation {
+	if cv.TolerateMissingAnnotation() != ov.TolerateMissingAnnotation() {
 		return false
 	}
 
 	if !slices.Equal(
-		slices.Sorted(slices.Values(cv.RequiredPlugins)),
-		slices.Sorted(slices.Values(ov.RequiredPlugins))) {
+		slices.Sorted(slices.Values(cv.RequiredPlugins())),
+		slices.Sorted(slices.Values(ov.RequiredPlugins()))) {
 		return false
 	}
 
@@ -127,8 +177,16 @@ func (c *Config) ToOptions() []nri.Option {
 		opts = append(opts, nri.WithDisabledExternalConnections())
 	}
 
+	if c != nil && len(c.PluginRoles) > 0 {
+		roles := []*nri.Role{}
+		for _, r := range c.PluginRoles {
+			roles = append(roles, r)
+		}
+		opts = append(opts, nri.WithAuthConfig(&nri.AuthConfig{Roles: roles}))
+	}
+
 	if c != nil && c.DefaultValidator != nil {
-		opts = append(opts, nri.WithDefaultValidator(c.DefaultValidator.ToNRI()))
+		opts = append(opts, nri.WithDefaultValidator(c.DefaultValidator.DefaultValidatorConfig))
 	}
 
 	if c.withTracing {
@@ -158,22 +216,5 @@ func (c *Config) ConfigureTimeouts() {
 
 	if c.PluginRequestTimeout != 0 {
 		nri.SetPluginRequestTimeout(c.PluginRequestTimeout)
-	}
-}
-
-func (c *DefaultValidatorConfig) ToNRI() *validator.DefaultValidatorConfig {
-	if c == nil {
-		return nil
-	}
-
-	return &validator.DefaultValidatorConfig{
-		Enable:                                c.Enable,
-		RejectOCIHookAdjustment:               c.RejectOCIHookAdjustment,
-		RejectRuntimeDefaultSeccompAdjustment: c.RejectRuntimeDefaultSeccompAdjustment,
-		RejectUnconfinedSeccompAdjustment:     c.RejectUnconfinedSeccompAdjustment,
-		RejectCustomSeccompAdjustment:         c.RejectCustomSeccompAdjustment,
-		RejectNamespaceAdjustment:             c.RejectNamespaceAdjustment,
-		RequiredPlugins:                       c.RequiredPlugins,
-		TolerateMissingAnnotation:             c.TolerateMissingAnnotation,
 	}
 }
