@@ -783,6 +783,18 @@ func (c *criContainer) GetSpec() *rspec.Spec {
 	return &rspec.Spec{}
 }
 
+func (c *criContainer) GetUser() *api.User {
+	p := c.GetSpec().Process
+	if p == nil {
+		return nil
+	}
+	return &api.User{
+		Uid:            p.User.UID,
+		Gid:            p.User.GID,
+		AdditionalGids: p.User.AdditionalGids,
+	}
+}
+
 //
 // conversion to/from CRI types
 //

@@ -21,6 +21,8 @@ type Container interface {
 	GetHooks() *nri.Hooks
 	GetLinuxContainer() LinuxContainer
 
+	GetUser() *nri.User
+
 	GetSpec() *specs.Spec
 }
 
@@ -45,6 +47,7 @@ func containerToNRI(ctr Container) *nri.Container {
 		Mounts:       ctr.GetMounts(),
 		Hooks:        ctr.GetHooks(),
 		Linux:        linuxContainerToNRI(ctr),
+		User:         ctr.GetUser(),
 	}
 }
 
