@@ -811,6 +811,15 @@ func (c *criContainer) GetRdt() *api.LinuxRdt {
 	}
 }
 
+func (c *criContainer) GetSeccompPolicy() *api.LinuxSeccomp {
+	spec := c.GetSpec()
+	if spec.Linux == nil || spec.Linux.Seccomp == nil {
+		return nil
+	}
+
+	return api.FromOCILinuxSeccomp(spec.Linux.Seccomp)
+}
+
 func (c *criContainer) GetSpec() *rspec.Spec {
 	if c.spec != nil {
 		return c.spec
