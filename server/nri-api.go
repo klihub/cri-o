@@ -811,6 +811,14 @@ func (c *criContainer) GetRdt() *api.LinuxRdt {
 	}
 }
 
+func (c *criContainer) GetSysctl() map[string]string {
+	spec := c.GetSpec()
+	if spec.Linux == nil || len(spec.Linux.Sysctl) == 0 {
+		return nil
+	}
+	return maps.Clone(spec.Linux.Sysctl)
+}
+
 func (c *criContainer) GetSpec() *rspec.Spec {
 	if c.spec != nil {
 		return c.spec

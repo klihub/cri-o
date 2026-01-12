@@ -19,5 +19,6 @@ func linuxContainerToNRI(ctr Container) *nri.LinuxContainer {
 		Scheduler:   lnx.GetScheduler(),
 		NetDevices:  lnx.GetNetDevices(),
 		Rdt:         lnx.GetRdt(),
+		Sysctl:      lnx.GetSysctl(),
 	}
 }
