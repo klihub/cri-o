@@ -108,7 +108,7 @@ type Message struct {
 	Type
 	Flags
 	Headers map[HeaderField]Variant
-	Body    []interface{}
+	Body    []any
 
 	serial uint32
 }
@@ -188,7 +188,7 @@ func DecodeMessageWithFDs(rd io.Reader, fds []int) (msg *Message, err error) {
 		}
 	}
 
-	if err = msg.IsValid(); err != nil {
+	if err = msg.validateHeader(); err != nil {
 		return nil, err
 	}
 	sig, _ := msg.Headers[FieldSignature].value.(Signature)
@@ -232,7 +232,7 @@ func (msg *Message) EncodeToWithFDs(out io.Writer, order binary.ByteOrder) (fds 
 	if err := msg.validateHeader(); err != nil {
 		return nil, err
 	}
-	var vs [7]interface{}
+	var vs [7]any
 	switch order {
 	case binary.LittleEndian:
 		vs[0] = byte('l')
@@ -290,8 +290,7 @@ func (msg *Message) EncodeTo(out io.Writer, order binary.ByteOrder) (err error) 
 // IsValid checks whether msg is a valid message and returns an
 // InvalidMessageError or FormatError if it is not.
 func (msg *Message) IsValid() error {
-	var b bytes.Buffer
-	return msg.EncodeTo(&b, nativeEndian)
+	return msg.EncodeTo(io.Discard, nativeEndian)
 }
 
 func (msg *Message) validateHeader() error {
