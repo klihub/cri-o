@@ -57,9 +57,9 @@ require (
 	github.com/opencontainers/selinux v1.11.0
 	github.com/prometheus/client_golang v1.15.1
 	github.com/seccomp/libseccomp-golang v0.10.0
-	github.com/sirupsen/logrus v1.9.3
+	github.com/sirupsen/logrus v1.9.4
 	github.com/soheilhy/cmux v0.1.5
-	github.com/stretchr/testify v1.8.3
+	github.com/stretchr/testify v1.10.0
 	github.com/syndtr/gocapability v0.0.0-20200815063812-42c35b437635
 	github.com/uptrace/opentelemetry-go-extra/otellogrus v0.2.0
 	github.com/urfave/cli/v2 v2.25.3
@@ -71,7 +71,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.16.0
 	golang.org/x/net v0.10.0
 	golang.org/x/sync v0.2.0
-	golang.org/x/sys v0.8.0
+	golang.org/x/sys v0.13.0
 	google.golang.org/grpc v1.55.0
 	google.golang.org/protobuf v1.30.0
 	k8s.io/api v0.27.0
