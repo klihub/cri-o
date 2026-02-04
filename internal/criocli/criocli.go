@@ -659,6 +659,10 @@ func mergeNRIConfig(config *libconfig.Config, ctx *cli.Context) {
 		config.NRI.PluginRequestTimeout = ctx.Duration("nri-plugin-request-timeout")
 	}
 
+	if ctx.IsSet("nri-log-spec-adjustments") {
+		config.NRI.LogSpecAdjustments = ctx.Bool("nri-log-spec-adjustments")
+	}
+
 	if ctx.IsSet("nri-enable-default-validator") {
 		config.NRI.DefaultValidator.Enable = ctx.Bool("nri-enable-default-validator")
 	}
@@ -690,6 +694,7 @@ func mergeNRIConfig(config *libconfig.Config, ctx *cli.Context) {
 	if ctx.IsSet("nri-validator-tolerate-missing-plugins-annotation") {
 		config.NRI.DefaultValidator.TolerateMissingAnnotation = ctx.String("nri-validator-tolerate-missing-plugins-annotation")
 	}
+
 }
 
 func GetFlagsAndMetadata() ([]cli.Flag, map[string]any, error) {
@@ -1193,6 +1198,11 @@ func getCrioFlags(defConf *libconfig.Config) []cli.Flag {
 			Name:  "nri-plugin-request-timeout",
 			Usage: `Timeout for a plugin to handle an NRI request.`,
 			Value: defConf.NRI.PluginRequestTimeout,
+		},
+		&cli.BoolFlag{
+			Name:  "nri-log-spec-adjustments",
+			Usage: "Log container OCI Spec adjustments.",
+			Value: defConf.NRI.LogSpecAdjustments,
 		},
 		&cli.BoolFlag{
 			Name:  "nri-enable-default-validator",

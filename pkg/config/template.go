@@ -693,6 +693,11 @@ func initCrioTemplateConfig(c *Config) ([]*templateConfigValue, error) {
 			isDefaultValue: simpleEqual(dc.NRI.PluginRequestTimeout, c.NRI.PluginRequestTimeout),
 		},
 		{
+			templateString: templateStringCrioNRILogSpecAdjustments,
+			group:          crioNRIConfig,
+			isDefaultValue: simpleEqual(dc.NRI.LogSpecAdjustments, c.NRI.LogSpecAdjustments),
+		},
+		{
 			templateString: templateStringCrioNRIDefaultValidator,
 			group:          crioNRIConfig,
 			isDefaultValue: dc.NRI.IsDefaultValidatorDefaultConfig(),
@@ -1741,6 +1746,11 @@ const templateStringCrioNRIPluginRegistrationTimeout = `# Timeout for a plugin t
 
 const templateStringCrioNRIPluginRequestTimeout = `# Timeout for a plugin to handle an NRI request.
 {{ $.Comment }}nri_plugin_request_timeout = "{{ .NRI.PluginRequestTimeout }}"
+
+`
+
+const templateStringCrioNRILogSpecAdjustments = `# Log container OCI Spec adjustments.
+{{ $.Comment }}nri_log_spec_adjustments = {{ .NRI.LogSpecAdjustments }}
 
 `
 

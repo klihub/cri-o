@@ -19,6 +19,7 @@ type Config struct {
 	PluginRegistrationTimeout time.Duration `toml:"nri_plugin_registration_timeout"`
 	PluginRequestTimeout      time.Duration `toml:"nri_plugin_request_timeout"`
 	DisableConnections        bool          `toml:"nri_disable_connections"`
+	LogSpecAdjustments        bool          `toml:"nri_log_spec_adjustments"`
 	withTracing               bool
 	DefaultValidator          *DefaultValidatorConfig `toml:"default_validator"`
 }

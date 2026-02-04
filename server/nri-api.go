@@ -114,7 +114,7 @@ func (a *nriAPI) createContainer(ctx context.Context, specgen *generate.Generato
 		spec: specgen.Config,
 	}
 
-	adjust, err := a.nri.CreateContainer(ctx, pod, ctr)
+	adjust, owners, err := a.nri.CreateContainer(ctx, pod, ctr)
 	if err != nil {
 		return err
 	}
@@ -123,7 +123,7 @@ func (a *nriAPI) createContainer(ctx context.Context, specgen *generate.Generato
 		return nil
 	}
 
-	wrapgen := nrigen.SpecGenerator(specgen,
+	options := []nrigen.GeneratorOption{
 		nrigen.WithAnnotationFilter(
 			func(values map[string]string) (map[string]string, error) {
 				annotations, handler := criPod.Annotations(), criPod.RuntimeHandler()
@@ -206,7 +206,22 @@ func (a *nriAPI) createContainer(ctx context.Context, specgen *generate.Generato
 				return nil
 			},
 		),
-	)
+	}
+
+	if a.nri.LogSpecAdjustments() {
+		options = append(options,
+			nrigen.WithLogger(
+				func(event string, fields map[string]any) {
+					fields["container"] = ctr.GetID()
+					log.WithFields(ctx, fields).Info(event)
+				},
+				owners.Owners[ctr.GetID()],
+			),
+		)
+	}
+
+	wrapgen := nrigen.SpecGenerator(specgen, options...)
+
 	if err := wrapgen.Adjust(adjust); err != nil {
 		return fmt.Errorf("failed to adjust container %s: %w", ctr.GetID(), err)
 	}
