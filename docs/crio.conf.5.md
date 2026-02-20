@@ -622,6 +622,9 @@ Timeout for a plugin to register itself with NRI.
 **nri_plugin_request_timeout**="2s"
 Timeout for a plugin to handle an NRI request.
 
+**nri_log_spec_adjustments**=false
+Log container OCI Spec adjustments.
+
 ## CRIO.NRI.DEFAULT_VALIDATOR TABLE
 
 The `crio.nri.default_validator` table contains settings for default built-in NRI validator plugin, which can be used to restrict what types of modifications other NRI plugins can make to containers.

@@ -90,6 +90,7 @@ crio
 [--nri-disable-connections]
 [--nri-enable-default-validator]
 [--nri-listen]=[value]
+[--nri-log-spec-adjustments]
 [--nri-plugin-config-dir]=[value]
 [--nri-plugin-dir]=[value]
 [--nri-plugin-registration-timeout]=[value]
@@ -370,6 +371,8 @@ crio [GLOBAL OPTIONS] command [COMMAND OPTIONS] [ARGUMENTS...]
 **--nri-enable-default-validator**: Enable the default NRI validator plugin.
 
 **--nri-listen**="": Socket to listen on for externally started NRI plugins to connect to. (default: "/var/run/nri/nri.sock")
+
+**--nri-log-spec-adjustments**: Log container OCI Spec adjustments.
 
 **--nri-plugin-config-dir**="": Directory to scan for configuration of pre-installed NRI plugins. (default: "/etc/nri/conf.d")
 
