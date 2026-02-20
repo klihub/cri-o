@@ -129,6 +129,7 @@ complete -c crio -n '__fish_crio_no_subcommand' -f -l no-pivot -d 'If true, the 
 complete -c crio -n '__fish_crio_no_subcommand' -f -l nri-disable-connections -d 'Disable connections from externally started NRI plugins.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l nri-enable-default-validator -d 'Enable the default NRI validator plugin.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l nri-listen -r -d 'Socket to listen on for externally started NRI plugins to connect to.'
+complete -c crio -n '__fish_crio_no_subcommand' -f -l nri-log-spec-adjustments -d 'Log container OCI Spec adjustments.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l nri-plugin-config-dir -r -d 'Directory to scan for configuration of pre-installed NRI plugins.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l nri-plugin-dir -r -d 'Directory to scan for pre-installed NRI plugins to start automatically.'
 complete -c crio -n '__fish_crio_no_subcommand' -f -l nri-plugin-registration-timeout -r -d 'Timeout for a plugin to register itself with NRI.'

@@ -94,6 +94,7 @@ h
 --nri-disable-connections
 --nri-enable-default-validator
 --nri-listen
+--nri-log-spec-adjustments
 --nri-plugin-config-dir
 --nri-plugin-dir
 --nri-plugin-registration-timeout
