@@ -1,4 +1,4 @@
-go 1.20
+go 1.23
 
 module github.com/cri-o/cri-o
 
@@ -36,7 +36,7 @@ require (
 	github.com/docker/distribution v2.8.2+incompatible
 	github.com/docker/go-units v0.5.0
 	github.com/fsnotify/fsnotify v1.6.0
-	github.com/go-chi/chi/v5 v5.0.8
+	github.com/go-chi/chi/v5 v5.3.0
 	github.com/go-logr/logr v1.2.4
 	github.com/godbus/dbus/v5 v5.1.1-0.20221029134443-4b691ce883d5
 	github.com/gogo/protobuf v1.3.2
