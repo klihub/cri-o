@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
@@ -81,7 +82,7 @@ type Container struct {
 	UIDMap []idtools.IDMap `json:"uidmap,omitempty"`
 	GIDMap []idtools.IDMap `json:"gidmap,omitempty"`
 
-	Flags map[string]interface{} `json:"flags,omitempty"`
+	Flags map[string]any `json:"flags,omitempty"`
 
 	// volatileStore is true if the container is from the volatile json file
 	volatileStore bool `json:"-"`
@@ -162,17 +163,17 @@ type containerStore struct {
 func copyContainer(c *Container) *Container {
 	return &Container{
 		ID:             c.ID,
-		Names:          copyStringSlice(c.Names),
+		Names:          copySlicePreferringNil(c.Names),
 		ImageID:        c.ImageID,
 		LayerID:        c.LayerID,
 		Metadata:       c.Metadata,
-		BigDataNames:   copyStringSlice(c.BigDataNames),
-		BigDataSizes:   copyStringInt64Map(c.BigDataSizes),
-		BigDataDigests: copyStringDigestMap(c.BigDataDigests),
+		BigDataNames:   copySlicePreferringNil(c.BigDataNames),
+		BigDataSizes:   copyMapPreferringNil(c.BigDataSizes),
+		BigDataDigests: copyMapPreferringNil(c.BigDataDigests),
 		Created:        c.Created,
-		UIDMap:         copyIDMap(c.UIDMap),
-		GIDMap:         copyIDMap(c.GIDMap),
-		Flags:          copyStringInterfaceMap(c.Flags),
+		UIDMap:         copySlicePreferringNil(c.UIDMap),
+		GIDMap:         copySlicePreferringNil(c.GIDMap),
+		Flags:          copyMapPreferringNil(c.Flags),
 		volatileStore:  c.volatileStore,
 	}
 }
@@ -195,7 +196,7 @@ func (c *Container) MountOpts() []string {
 	switch value := c.Flags[mountOptsFlag].(type) {
 	case []string:
 		return value
-	case []interface{}:
+	case []any:
 		var mountOpts []string
 		for _, v := range value {
 			if flag, ok := v.(string); ok {
@@ -457,7 +458,7 @@ func (r *containerStore) load(lockedForWriting bool) (bool, error) {
 
 	ids := make(map[string]*Container)
 
-	for locationIndex := 0; locationIndex < numContainerLocationIndex; locationIndex++ {
+	for locationIndex := range numContainerLocationIndex {
 		location := containerLocationFromIndex(locationIndex)
 		rpath := r.jsonPath[locationIndex]
 
@@ -523,13 +524,20 @@ func (r *containerStore) load(lockedForWriting bool) (bool, error) {
 // The caller must hold r.inProcessLock for reading (but usually holds it for writing in order to make the desired changes).
 func (r *containerStore) save(saveLocations containerLocations) error {
 	r.lockfile.AssertLockedForWriting()
-	for locationIndex := 0; locationIndex < numContainerLocationIndex; locationIndex++ {
+	// This must be done before we write the file, because the process could be terminated
+	// after the file is written but before the lock file is updated.
+	lw, err := r.lockfile.RecordWrite()
+	if err != nil {
+		return err
+	}
+	r.lastWrite = lw
+	for locationIndex := range numContainerLocationIndex {
 		location := containerLocationFromIndex(locationIndex)
 		if location&saveLocations == 0 {
 			continue
 		}
 		rpath := r.jsonPath[locationIndex]
-		if err := os.MkdirAll(filepath.Dir(rpath), 0700); err != nil {
+		if err := os.MkdirAll(filepath.Dir(rpath), 0o700); err != nil {
 			return err
 		}
 		subsetContainers := make([]*Container, 0, len(r.containers))
@@ -549,15 +557,10 @@ func (r *containerStore) save(saveLocations containerLocations) error {
 				NoSync: true,
 			}
 		}
-		if err := ioutils.AtomicWriteFileWithOpts(rpath, jdata, 0600, opts); err != nil {
+		if err := ioutils.AtomicWriteFileWithOpts(rpath, jdata, 0o600, opts); err != nil {
 			return err
 		}
 	}
-	lw, err := r.lockfile.RecordWrite()
-	if err != nil {
-		return err
-	}
-	r.lastWrite = lw
 	return nil
 }
 
@@ -569,12 +572,12 @@ func (r *containerStore) saveFor(modifiedContainer *Container) error {
 }
 
 func newContainerStore(dir string, runDir string, transient bool) (rwContainerStore, error) {
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
 	volatileDir := dir
 	if transient {
-		if err := os.MkdirAll(runDir, 0700); err != nil {
+		if err := os.MkdirAll(runDir, 0o700); err != nil {
 			return nil, err
 		}
 		volatileDir = runDir
@@ -638,13 +641,13 @@ func (r *containerStore) ClearFlag(id string, flag string) error {
 }
 
 // Requires startWriting.
-func (r *containerStore) SetFlag(id string, flag string, value interface{}) error {
+func (r *containerStore) SetFlag(id string, flag string, value any) error {
 	container, ok := r.lookup(id)
 	if !ok {
 		return ErrContainerUnknown
 	}
 	if container.Flags == nil {
-		container.Flags = make(map[string]interface{})
+		container.Flags = make(map[string]any)
 	}
 	container.Flags[flag] = value
 	return r.saveFor(container)
@@ -688,13 +691,13 @@ func (r *containerStore) create(id string, names []string, image, layer string, 
 		BigDataSizes:   make(map[string]int64),
 		BigDataDigests: make(map[string]digest.Digest),
 		Created:        time.Now().UTC(),
-		Flags:          copyStringInterfaceMap(options.Flags),
-		UIDMap:         copyIDMap(options.UIDMap),
-		GIDMap:         copyIDMap(options.GIDMap),
+		Flags:          newMapFrom(options.Flags),
+		UIDMap:         copySlicePreferringNil(options.UIDMap),
+		GIDMap:         copySlicePreferringNil(options.GIDMap),
 		volatileStore:  options.Volatile,
 	}
 	if options.MountOpts != nil {
-		container.Flags[mountOptsFlag] = append([]string{}, options.MountOpts...)
+		container.Flags[mountOptsFlag] = slices.Clone(options.MountOpts)
 	}
 	if options.Volatile {
 		container.Flags[volatileFlag] = true
@@ -786,13 +789,6 @@ func (r *containerStore) Delete(id string) error {
 		return ErrContainerUnknown
 	}
 	id = container.ID
-	toDeleteIndex := -1
-	for i, candidate := range r.containers {
-		if candidate.ID == id {
-			toDeleteIndex = i
-			break
-		}
-	}
 	delete(r.byid, id)
 	// This can only fail if the ID is already missing, which shouldn’t happen — and in that case the index is already in the desired state anyway.
 	// The store’s Delete method is used on various paths to recover from failures, so this should be robust against partially missing data.
@@ -801,14 +797,9 @@ func (r *containerStore) Delete(id string) error {
 	for _, name := range container.Names {
 		delete(r.byname, name)
 	}
-	if toDeleteIndex != -1 {
-		// delete the container at toDeleteIndex
-		if toDeleteIndex == len(r.containers)-1 {
-			r.containers = r.containers[:len(r.containers)-1]
-		} else {
-			r.containers = append(r.containers[:toDeleteIndex], r.containers[toDeleteIndex+1:]...)
-		}
-	}
+	r.containers = slices.DeleteFunc(r.containers, func(candidate *Container) bool {
+		return candidate.ID == id
+	})
 	if err := r.saveFor(container); err != nil {
 		return err
 	}
@@ -914,7 +905,7 @@ func (r *containerStore) BigDataNames(id string) ([]string, error) {
 	if !ok {
 		return nil, ErrContainerUnknown
 	}
-	return copyStringSlice(c.BigDataNames), nil
+	return copySlicePreferringNil(c.BigDataNames), nil
 }
 
 // Requires startWriting.
@@ -926,10 +917,10 @@ func (r *containerStore) SetBigData(id, key string, data []byte) error {
 	if !ok {
 		return ErrContainerUnknown
 	}
-	if err := os.MkdirAll(r.datadir(c.ID), 0700); err != nil {
+	if err := os.MkdirAll(r.datadir(c.ID), 0o700); err != nil {
 		return err
 	}
-	err := ioutils.AtomicWriteFile(r.datapath(c.ID, key), data, 0600)
+	err := ioutils.AtomicWriteFile(r.datapath(c.ID, key), data, 0o600)
 	if err == nil {
 		save := false
 		if c.BigDataSizes == nil {
@@ -946,14 +937,7 @@ func (r *containerStore) SetBigData(id, key string, data []byte) error {
 		if !sizeOk || oldSize != c.BigDataSizes[key] || !digestOk || oldDigest != newDigest {
 			save = true
 		}
-		addName := true
-		for _, name := range c.BigDataNames {
-			if name == key {
-				addName = false
-				break
-			}
-		}
-		if addName {
+		if !slices.Contains(c.BigDataNames, key) {
 			c.BigDataNames = append(c.BigDataNames, key)
 			save = true
 		}

@@ -1,5 +1,4 @@
 //go:build !linux || exclude_disk_quota || !cgo
-// +build !linux exclude_disk_quota !cgo
 
 package quota
 
@@ -15,8 +14,7 @@ type Quota struct {
 
 // Control - Context to be used by storage driver (e.g. overlay)
 // who wants to apply project quotas to container dirs
-type Control struct {
-}
+type Control struct{}
 
 func NewControl(basePath string) (*Control, error) {
 	return nil, errors.New("filesystem does not support, or has not enabled quotas")

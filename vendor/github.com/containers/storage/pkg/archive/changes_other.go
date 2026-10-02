@@ -1,5 +1,4 @@
 //go:build !linux
-// +build !linux
 
 package archive
 
@@ -31,7 +30,7 @@ func collectFileInfoForChanges(oldDir, newDir string, oldIDMap, newIDMap *idtool
 	}()
 
 	// block until both routines have returned
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		if err := <-errs; err != nil {
 			return nil, nil, err
 		}
@@ -92,7 +91,10 @@ func collectFileInfo(sourceDir string, idMappings *idtools.IDMappings) (*FileInf
 			return err
 		}
 
-		if s.Dev() != sourceStat.Dev() {
+		// Don't cross mount points. This ignores file mounts to avoid
+		// generating a diff which deletes all files following the
+		// mount.
+		if s.Dev() != sourceStat.Dev() && s.IsDir() {
 			return filepath.SkipDir
 		}
 

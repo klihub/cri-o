@@ -14,11 +14,9 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-var (
-	// ApplyUncompressedLayer defines the unpack method used by the graph
-	// driver.
-	ApplyUncompressedLayer = chrootarchive.ApplyUncompressedLayer
-)
+// ApplyUncompressedLayer defines the unpack method used by the graph
+// driver.
+var ApplyUncompressedLayer = chrootarchive.ApplyUncompressedLayer
 
 // NaiveDiffDriver takes a ProtoDriver and adds the
 // capability of the Diffing methods which it may or may not
@@ -57,6 +55,7 @@ func (gdw *NaiveDiffDriver) Diff(id string, idMappings *idtools.IDMappings, pare
 
 	options := MountOpts{
 		MountLabel: mountLabel,
+		Options:    []string{"ro"},
 	}
 	layerFs, err := driver.Get(id, options)
 	if err != nil {
@@ -129,6 +128,7 @@ func (gdw *NaiveDiffDriver) Changes(id string, idMappings *idtools.IDMappings, p
 
 	options := MountOpts{
 		MountLabel: mountLabel,
+		Options:    []string{"ro"},
 	}
 	layerFs, err := driver.Get(id, options)
 	if err != nil {
@@ -139,10 +139,6 @@ func (gdw *NaiveDiffDriver) Changes(id string, idMappings *idtools.IDMappings, p
 	parentFs := ""
 
 	if parent != "" {
-		options := MountOpts{
-			MountLabel: mountLabel,
-			Options:    []string{"ro"},
-		}
 		parentFs, err = driver.Get(parent, options)
 		if err != nil {
 			return nil, err
@@ -173,7 +169,7 @@ func (gdw *NaiveDiffDriver) ApplyDiff(id, parent string, options ApplyDiffOpts) 
 	}
 	defer driverPut(driver, id, &err)
 
-	defaultForceMask := os.FileMode(0700)
+	defaultForceMask := os.FileMode(0o700)
 	var forceMask *os.FileMode // = nil
 	if runtime.GOOS == "darwin" {
 		forceMask = &defaultForceMask
