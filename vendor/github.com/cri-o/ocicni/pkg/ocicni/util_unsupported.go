@@ -1,9 +1,10 @@
-//go:build !linux
-// +build !linux
+//go:build !linux && !freebsd
+// +build !linux,!freebsd
 
 package ocicni
 
 import (
+	"context"
 	"errors"
 	"net"
 )
@@ -17,12 +18,8 @@ func (nsm *nsManager) init() error {
 	return nil
 }
 
-func getContainerDetails(nsm *nsManager, netnsPath, interfaceName, addrType string) (*net.IPNet, *net.HardwareAddr, error) {
+func getContainerDetails(_ context.Context, nsm *nsManager, netnsPath, interfaceName, addrType string) (*net.IPNet, *net.HardwareAddr, error) {
 	return nil, nil, errUnsupportedPlatform
-}
-
-func tearDownLoopback(netns string) error {
-	return errUnsupportedPlatform
 }
 
 func bringUpLoopback(netns string) error {
