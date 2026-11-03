@@ -672,6 +672,60 @@ List of required NRI plugins that must be present.
 **nri_validator_tolerate_missing_plugins_annotation**=""
 Name of the annotation used to indicate toleration of missing required NRI plugins.
 
+## CRIO.NRI.DEFAULT_VALIDATOR.ROLES TABLE
+
+The `crio.nri.default_validator.roles` tables contain per role overrides of the restrictions configured in the `crio.nri.default_validator` table. A plugin which authenticates itself is assigned a role, see the `crio.nri.plugin_roles` tables below. The restrictions configured for that role override the ones configured for the default validator. A plugin without a role, including any plugin which does not authenticate itself, is restricted by the default validator configuration.
+
+Each override is a table of its own, named after the role, for instance `crio.nri.default_validator.roles.hook_injector`. A role which does not override a restriction inherits it from the default validator configuration. The recognized keys are
+
+**reject_oci_hook_adjustment**=false
+Reject adjustment of OCI Hooks by plugins with this role.
+
+**reject_runtime_default_seccomp_adjustment**=false
+Reject adjustment of the runtime default seccomp policy by plugins with this role.
+
+**reject_unconfined_seccomp_adjustment**=false
+Reject adjustment of an unconfined seccomp policy by plugins with this role.
+
+**reject_custom_seccomp_adjustment**=false
+Reject adjustment of a custom seccomp policy by plugins with this role.
+
+**reject_namespace_adjustment**=false
+Reject adjustment of linux namespaces by plugins with this role.
+
+## CRIO.NRI.PLUGIN_ROLES TABLE
+
+The `crio.nri.plugin_roles` tables set up NRI plugin authentication. A role has a set of plugin public keys and an optional set of opaque tags. A plugin which authenticates itself with a key configured for a role is assigned that role. Role tags carry no meaning for NRI itself or for the default validator, but they are passed to custom validating plugins.
+
+Note that configuring roles does not prevent unauthenticated plugins from connecting and registering. Such plugins are simply assigned no role. Access to NRI is controlled by restricting access to the NRI socket.
+
+Each role is a table of its own, named after the role, for instance `crio.nri.plugin_roles.hook_injector`. The recognized keys are
+
+**keys**=[]
+Public keys of the plugins which are assigned this role. A role must have at least one key.
+
+**tags**={}
+Opaque tags associated with this role, passed to custom validating plugins.
+
+For instance, the following configuration assigns the `hook_injector` role to a
+plugin authenticating itself with the given key, and allows OCI hook injection
+for that role while rejecting it for all other plugins.
+
+```toml
+[crio.nri.default_validator]
+nri_enable_default_validator = true
+nri_validator_reject_oci_hook_adjustment = true
+
+[crio.nri.default_validator.roles.hook_injector]
+reject_oci_hook_adjustment = false
+
+[crio.nri.plugin_roles.hook_injector]
+keys = [ "bJtc4n1zJg+GY39n+oyfNbMzJo1UgtzAxifxireq8W0=" ]
+
+[crio.nri.plugin_roles.hook_injector.tags]
+hooks = "true"
+```
+
 # SEE ALSO
 
 crio.conf.d(5), containers-storage.conf(5), containers-policy.json(5), containers-registries.conf(5), crio(8)
