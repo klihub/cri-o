@@ -62,6 +62,8 @@ type Plugin interface {
 	Synchronize(context.Context, *SynchronizeRequest) (*SynchronizeResponse, error)
 	// Shutdown a plugin (let it know the runtime is going down).
 	Shutdown(context.Context, *Empty) (*Empty, error)
+	// UpdatePluginStatus tells the plugin its status in the runtime.
+	UpdatePluginStatus(context.Context, *UpdatePluginStatusRequest) (*UpdatePluginStatusResponse, error)
 	// RunPodSandbox relays the corresponding request to the plugin.
 	RunPodSandbox(context.Context, *RunPodSandboxRequest) (*RunPodSandboxResponse, error)
 	// UpdatePodSandbox relays the corresponding request to the plugin.

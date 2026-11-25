@@ -41,6 +41,9 @@ type (
 	ShutdownRequest  = api.Empty
 	ShutdownResponse = api.Empty
 
+	UpdatePluginStatusRequest  = api.UpdatePluginStatusRequest
+	UpdatePluginStatusResponse = api.UpdatePluginStatusResponse
+
 	CreateContainerRequest  = api.CreateContainerRequest
 	CreateContainerResponse = api.CreateContainerResponse
 	UpdateContainerRequest  = api.UpdateContainerRequest
@@ -110,8 +113,9 @@ type (
 	User                     = api.User
 	Image                    = api.Image
 
-	Event     = api.Event
-	EventMask = api.EventMask
+	Event         = api.Event
+	EventMask     = api.EventMask
+	FailurePolicy = api.FailurePolicy
 )
 
 // Aliased consts for api/api.proto.

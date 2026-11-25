@@ -51,8 +51,34 @@ var (
 	timeoutCfgLock            sync.RWMutex
 )
 
+// pluginOrigin tells where a plugin came from.
+type pluginOrigin int
+
+const (
+	// originBuiltin is a plugin compiled into the runtime.
+	originBuiltin pluginOrigin = iota
+	// originLaunched is a pre-installed plugin started by the runtime.
+	originLaunched
+	// originExternal is a plugin which connected to our socket.
+	originExternal
+)
+
+// String returns the name of a plugin origin.
+func (o pluginOrigin) String() string {
+	switch o {
+	case originBuiltin:
+		return "builtin"
+	case originLaunched:
+		return "pre-installed"
+	case originExternal:
+		return "external"
+	}
+	return "unknown"
+}
+
 type plugin struct {
 	sync.Mutex
+	origin pluginOrigin
 	idx    string
 	base   string
 	cfg    string
@@ -63,7 +89,9 @@ type plugin struct {
 	rpcl   stdnet.Listener
 	rpcs   *ttrpc.Server
 	events EventMask
+	policy *FailurePolicy
 	closed bool
+	live   bool
 	regC   chan error
 	closeC chan struct{}
 	r      *Adaptation
@@ -114,11 +142,12 @@ func (r *Adaptation) newLaunchedPlugin(dir, idx, base, cfg string) (p *plugin, r
 			return nil, fmt.Errorf("load WASM plugin %s: %w", fullPath, err)
 		}
 		return &plugin{
-			cfg:  cfg,
-			idx:  idx,
-			base: base,
-			r:    r,
-			impl: &pluginType{wasmImpl: wasm},
+			origin: originLaunched,
+			cfg:    cfg,
+			idx:    idx,
+			base:   base,
+			r:      r,
+			impl:   &pluginType{wasmImpl: wasm},
 		}, nil
 	}
 
@@ -150,6 +179,7 @@ func (r *Adaptation) newLaunchedPlugin(dir, idx, base, cfg string) (p *plugin, r
 	}
 
 	p = &plugin{
+		origin: originLaunched,
 		cfg:    cfg,
 		cmd:    cmd,
 		idx:    idx,
@@ -176,6 +206,7 @@ func (r *Adaptation) newBuiltinPlugin(b *builtin.BuiltinPlugin) (*plugin, error)
 	}
 
 	return &plugin{
+		origin: originBuiltin,
 		idx:    b.Index,
 		base:   b.Base,
 		closeC: make(chan struct{}),
@@ -211,6 +242,7 @@ func isWasm(path string) bool {
 // Create a plugin (stub) for an accepted external plugin connection.
 func (r *Adaptation) newExternalPlugin(conn stdnet.Conn) (p *plugin, retErr error) {
 	p = &plugin{
+		origin: originExternal,
 		regC:   make(chan error, 1),
 		closeC: make(chan struct{}),
 		r:      r,
@@ -361,6 +393,8 @@ func (p *plugin) start(name, version string) (err error) {
 func (p *plugin) close() {
 	if p.impl.isWasm() || p.impl.isBuiltin() {
 		p.closed = true
+		p.live = false
+		p.r.registry.Release(p)
 		return
 	}
 
@@ -371,6 +405,8 @@ func (p *plugin) close() {
 	}
 
 	p.closed = true
+	p.live = false
+	p.r.registry.Release(p)
 	p.mux.Close()
 	p.rpcc.Close()
 	p.rpcs.Close()
@@ -381,6 +417,22 @@ func (p *plugin) isClosed() bool {
 	p.Lock()
 	defer p.Unlock()
 	return p.closed
+}
+
+// setLive marks the plugin as live, or no longer live. A live plugin is
+// the one the runtime considers the current instance for its name: it is
+// among the runtime's plugins, it is relayed requests and events, and it
+// is allowed to make requests back to the runtime.
+func (p *plugin) setLive(live bool) {
+	p.Lock()
+	defer p.Unlock()
+	p.live = live
+}
+
+func (p *plugin) isLive() bool {
+	p.Lock()
+	defer p.Unlock()
+	return p.live
 }
 
 // stop a plugin (if it was launched by us)
@@ -445,6 +497,11 @@ func (p *plugin) RegisterPlugin(ctx context.Context, req *RegisterPluginRequest)
 		}
 		p.base = req.PluginName
 		p.idx = req.PluginIdx
+
+		if err := p.r.registry.Claim(p); err != nil {
+			p.regC <- err
+			return &RegisterPluginResponse{}, err
+		}
 	}
 
 	nriVersion := "unknown"
@@ -460,12 +517,32 @@ func (p *plugin) RegisterPlugin(ctx context.Context, req *RegisterPluginRequest)
 
 // UpdateContainers relays container update request to the runtime.
 func (p *plugin) UpdateContainers(ctx context.Context, req *UpdateContainersRequest) (*UpdateContainersResponse, error) {
+	if !p.isLive() {
+		log.Warnf(ctx, "refusing container updates requested by plugin %q: not a live plugin", p.name())
+		return nil, fmt.Errorf("plugin %q is not a live plugin, refusing container updates", p.name())
+	}
+
 	log.Infof(ctx, "plugin %q requested container updates", p.name())
 
 	failed, err := p.r.updateContainers(ctx, req.Update)
 	return &UpdateContainersResponse{
 		Failed: failed,
 	}, err
+}
+
+// updateStatus tells the plugin its status in the runtime.
+func (p *plugin) updateStatus(ctx context.Context, status api.PluginStatus, reason string) {
+	ctx, cancel := context.WithTimeout(ctx, getPluginRequestTimeout())
+	defer cancel()
+
+	req := &UpdatePluginStatusRequest{
+		Status: status,
+		Reason: reason,
+	}
+
+	if _, err := p.impl.UpdatePluginStatus(ctx, req); err != nil {
+		log.Warnf(ctx, "failed to tell plugin %q it is %s: %v", p.name(), status, err)
+	}
 }
 
 // configure the plugin and subscribe it for the events it requested.
@@ -496,6 +573,9 @@ func (p *plugin) configure(ctx context.Context, name, version, config string) (e
 		events = ValidEvents
 	}
 	p.events = events
+
+	// A nil policy means all defaults. The proto getters accept a nil receiver.
+	p.policy = rpl.FailurePolicy
 
 	return nil
 }
@@ -614,20 +694,14 @@ func (p *plugin) runPodSandbox(ctx context.Context, req *RunPodSandboxRequest) (
 		return nil, nil
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, getPluginRequestTimeout())
+	rctx, cancel := context.WithTimeout(ctx, getPluginRequestTimeout())
 	defer cancel()
 
 	start := time.Now()
-	rpl, err := p.impl.RunPodSandbox(ctx, req)
+	rpl, err := p.impl.RunPodSandbox(rctx, req)
 	p.recordInvocation(event.PrettyName(), start, err)
 	if err != nil {
-		if isFatalError(err) {
-			log.Errorf(ctx, "closing plugin %s, failed to handle %s request: %v",
-				p.name(), event.PrettyName(), err)
-			p.close()
-			return nil, nil
-		}
-		return nil, err
+		return nil, p.handleRequestError(ctx, event, err)
 	}
 	p.warnDeprecatedEvent(ctx, event)
 
@@ -641,20 +715,14 @@ func (p *plugin) updatePodSandbox(ctx context.Context, req *UpdatePodSandboxRequ
 		return nil, nil
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, getPluginRequestTimeout())
+	rctx, cancel := context.WithTimeout(ctx, getPluginRequestTimeout())
 	defer cancel()
 
 	start := time.Now()
-	_, err := p.impl.UpdatePodSandbox(ctx, req)
+	_, err := p.impl.UpdatePodSandbox(rctx, req)
 	p.recordInvocation(event.PrettyName(), start, err)
 	if err != nil {
-		if isFatalError(err) {
-			log.Errorf(ctx, "closing plugin %s, failed to handle %s request: %v",
-				p.name(), event.PrettyName(), err)
-			p.close()
-			return nil, nil
-		}
-		return nil, err
+		return nil, p.handleRequestError(ctx, event, err)
 	}
 
 	return &UpdatePodSandboxResponse{}, nil
@@ -667,20 +735,14 @@ func (p *plugin) postUpdatePodSandbox(ctx context.Context, req *PostUpdatePodSan
 		return nil, nil
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, getPluginRequestTimeout())
+	rctx, cancel := context.WithTimeout(ctx, getPluginRequestTimeout())
 	defer cancel()
 
 	start := time.Now()
-	_, err := p.impl.PostUpdatePodSandbox(ctx, req)
+	_, err := p.impl.PostUpdatePodSandbox(rctx, req)
 	p.recordInvocation(event.PrettyName(), start, err)
 	if err != nil {
-		if isFatalError(err) {
-			log.Errorf(ctx, "closing plugin %s, failed to handle %s request: %v",
-				p.name(), event.PrettyName(), err)
-			p.close()
-			return nil, nil
-		}
-		return nil, err
+		return nil, p.handleRequestError(ctx, event, err)
 	}
 	p.warnDeprecatedEvent(ctx, event)
 
@@ -694,20 +756,14 @@ func (p *plugin) stopPodSandbox(ctx context.Context, req *StopPodSandboxRequest)
 		return nil, nil
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, getPluginRequestTimeout())
+	rctx, cancel := context.WithTimeout(ctx, getPluginRequestTimeout())
 	defer cancel()
 
 	start := time.Now()
-	_, err := p.impl.StopPodSandbox(ctx, req)
+	_, err := p.impl.StopPodSandbox(rctx, req)
 	p.recordInvocation(event.PrettyName(), start, err)
 	if err != nil {
-		if isFatalError(err) {
-			log.Errorf(ctx, "closing plugin %s, failed to handle %s request: %v",
-				p.name(), event.PrettyName(), err)
-			p.close()
-			return nil, nil
-		}
-		return nil, err
+		return nil, p.handleRequestError(ctx, event, err)
 	}
 	p.warnDeprecatedEvent(ctx, event)
 
@@ -721,20 +777,14 @@ func (p *plugin) removePodSandbox(ctx context.Context, req *RemovePodSandboxRequ
 		return nil, nil
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, getPluginRequestTimeout())
+	rctx, cancel := context.WithTimeout(ctx, getPluginRequestTimeout())
 	defer cancel()
 
 	start := time.Now()
-	_, err := p.impl.RemovePodSandbox(ctx, req)
+	_, err := p.impl.RemovePodSandbox(rctx, req)
 	p.recordInvocation(event.PrettyName(), start, err)
 	if err != nil {
-		if isFatalError(err) {
-			log.Errorf(ctx, "closing plugin %s, failed to handle %s request: %v",
-				p.name(), event.PrettyName(), err)
-			p.close()
-			return nil, nil
-		}
-		return nil, err
+		return nil, p.handleRequestError(ctx, event, err)
 	}
 	p.warnDeprecatedEvent(ctx, event)
 
@@ -748,20 +798,14 @@ func (p *plugin) createContainer(ctx context.Context, req *CreateContainerReques
 		return nil, nil
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, getPluginRequestTimeout())
+	rctx, cancel := context.WithTimeout(ctx, getPluginRequestTimeout())
 	defer cancel()
 
 	start := time.Now()
-	rpl, err := p.impl.CreateContainer(ctx, req)
+	rpl, err := p.impl.CreateContainer(rctx, req)
 	p.recordInvocation(event.PrettyName(), start, err)
 	if err != nil {
-		if isFatalError(err) {
-			log.Errorf(ctx, "closing plugin %s, failed to handle %s request: %v",
-				p.name(), event.PrettyName(), err)
-			p.close()
-			return nil, nil
-		}
-		return nil, err
+		return nil, p.handleRequestError(ctx, event, err)
 	}
 	if rpl != nil {
 		p.recordAdjustments(event.PrettyName(), rpl.Adjust, len(rpl.Update), len(rpl.Evict))
@@ -777,20 +821,14 @@ func (p *plugin) postCreateContainer(ctx context.Context, req *PostCreateContain
 		return nil, nil
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, getPluginRequestTimeout())
+	rctx, cancel := context.WithTimeout(ctx, getPluginRequestTimeout())
 	defer cancel()
 
 	start := time.Now()
-	_, err := p.impl.PostCreateContainer(ctx, req)
+	_, err := p.impl.PostCreateContainer(rctx, req)
 	p.recordInvocation(event.PrettyName(), start, err)
 	if err != nil {
-		if isFatalError(err) {
-			log.Errorf(ctx, "closing plugin %s, failed to handle %s request: %v",
-				p.name(), event.PrettyName(), err)
-			p.close()
-			return nil, nil
-		}
-		return nil, err
+		return nil, p.handleRequestError(ctx, event, err)
 	}
 	p.warnDeprecatedEvent(ctx, event)
 
@@ -804,20 +842,14 @@ func (p *plugin) startContainer(ctx context.Context, req *StartContainerRequest)
 		return nil, nil
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, getPluginRequestTimeout())
+	rctx, cancel := context.WithTimeout(ctx, getPluginRequestTimeout())
 	defer cancel()
 
 	start := time.Now()
-	_, err := p.impl.StartContainer(ctx, req)
+	_, err := p.impl.StartContainer(rctx, req)
 	p.recordInvocation(event.PrettyName(), start, err)
 	if err != nil {
-		if isFatalError(err) {
-			log.Errorf(ctx, "closing plugin %s, failed to handle %s request: %v",
-				p.name(), event.PrettyName(), err)
-			p.close()
-			return nil, nil
-		}
-		return nil, err
+		return nil, p.handleRequestError(ctx, event, err)
 	}
 	p.warnDeprecatedEvent(ctx, event)
 
@@ -831,20 +863,14 @@ func (p *plugin) postStartContainer(ctx context.Context, req *PostStartContainer
 		return nil, nil
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, getPluginRequestTimeout())
+	rctx, cancel := context.WithTimeout(ctx, getPluginRequestTimeout())
 	defer cancel()
 
 	start := time.Now()
-	_, err := p.impl.PostStartContainer(ctx, req)
+	_, err := p.impl.PostStartContainer(rctx, req)
 	p.recordInvocation(event.PrettyName(), start, err)
 	if err != nil {
-		if isFatalError(err) {
-			log.Errorf(ctx, "closing plugin %s, failed to handle %s request: %v",
-				p.name(), event.PrettyName(), err)
-			p.close()
-			return nil, nil
-		}
-		return nil, err
+		return nil, p.handleRequestError(ctx, event, err)
 	}
 	p.warnDeprecatedEvent(ctx, event)
 
@@ -858,20 +884,14 @@ func (p *plugin) updateContainer(ctx context.Context, req *UpdateContainerReques
 		return nil, nil
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, getPluginRequestTimeout())
+	rctx, cancel := context.WithTimeout(ctx, getPluginRequestTimeout())
 	defer cancel()
 
 	start := time.Now()
-	rpl, err := p.impl.UpdateContainer(ctx, req)
+	rpl, err := p.impl.UpdateContainer(rctx, req)
 	p.recordInvocation(event.PrettyName(), start, err)
 	if err != nil {
-		if isFatalError(err) {
-			log.Errorf(ctx, "closing plugin %s, failed to handle %s request: %v",
-				p.name(), event.PrettyName(), err)
-			p.close()
-			return nil, nil
-		}
-		return nil, err
+		return nil, p.handleRequestError(ctx, event, err)
 	}
 	if rpl != nil {
 		p.recordAdjustments(event.PrettyName(), nil, len(rpl.Update), len(rpl.Evict))
@@ -887,20 +907,14 @@ func (p *plugin) postUpdateContainer(ctx context.Context, req *PostUpdateContain
 		return nil, nil
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, getPluginRequestTimeout())
+	rctx, cancel := context.WithTimeout(ctx, getPluginRequestTimeout())
 	defer cancel()
 
 	start := time.Now()
-	_, err := p.impl.PostUpdateContainer(ctx, req)
+	_, err := p.impl.PostUpdateContainer(rctx, req)
 	p.recordInvocation(event.PrettyName(), start, err)
 	if err != nil {
-		if isFatalError(err) {
-			log.Errorf(ctx, "closing plugin %s, failed to handle %s request: %v",
-				p.name(), event.PrettyName(), err)
-			p.close()
-			return nil, nil
-		}
-		return nil, err
+		return nil, p.handleRequestError(ctx, event, err)
 	}
 	p.warnDeprecatedEvent(ctx, event)
 
@@ -914,20 +928,14 @@ func (p *plugin) stopContainer(ctx context.Context, req *StopContainerRequest) (
 		return nil, nil
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, getPluginRequestTimeout())
+	rctx, cancel := context.WithTimeout(ctx, getPluginRequestTimeout())
 	defer cancel()
 
 	start := time.Now()
-	rpl, err = p.impl.StopContainer(ctx, req)
+	rpl, err = p.impl.StopContainer(rctx, req)
 	p.recordInvocation(event.PrettyName(), start, err)
 	if err != nil {
-		if isFatalError(err) {
-			log.Errorf(ctx, "closing plugin %s, failed to handle %s request: %v",
-				p.name(), event.PrettyName(), err)
-			p.close()
-			return nil, nil
-		}
-		return nil, err
+		return nil, p.handleRequestError(ctx, event, err)
 	}
 	if rpl != nil {
 		p.recordAdjustments(event.PrettyName(), nil, len(rpl.Update), 0)
@@ -943,20 +951,14 @@ func (p *plugin) removeContainer(ctx context.Context, req *RemoveContainerReques
 		return nil, nil
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, getPluginRequestTimeout())
+	rctx, cancel := context.WithTimeout(ctx, getPluginRequestTimeout())
 	defer cancel()
 
 	start := time.Now()
-	_, err := p.impl.RemoveContainer(ctx, req)
+	_, err := p.impl.RemoveContainer(rctx, req)
 	p.recordInvocation(event.PrettyName(), start, err)
 	if err != nil {
-		if isFatalError(err) {
-			log.Errorf(ctx, "closing plugin %s, failed to handle %s request: %v",
-				p.name(), event.PrettyName(), err)
-			p.close()
-			return nil, nil
-		}
-		return nil, err
+		return nil, p.handleRequestError(ctx, event, err)
 	}
 	p.warnDeprecatedEvent(ctx, event)
 
@@ -970,19 +972,19 @@ func (p *plugin) ValidateContainerAdjustment(ctx context.Context, req *ValidateC
 		return nil
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, getPluginRequestTimeout())
+	rctx, cancel := context.WithTimeout(ctx, getPluginRequestTimeout())
 	defer cancel()
 
 	start := time.Now()
-	rpl, err := p.impl.ValidateContainerAdjustment(ctx, req)
+	rpl, err := p.impl.ValidateContainerAdjustment(rctx, req)
 	p.recordInvocation(event.PrettyName(), start, err)
 	if err != nil {
-		if isFatalError(err) {
+		if ctx.Err() == nil && p.dropsPlugin(err) {
 			log.Errorf(ctx, "closing plugin %s, failed to handle %s request: %v",
 				p.name(), event.PrettyName(), err)
 			p.close()
 		}
-		return fmt.Errorf("validator plugin %s failed: %v", p.name(), err)
+		return fmt.Errorf("validator plugin %s failed: %w", p.name(), err)
 	}
 
 	return rpl.ValidationResult(p.name())
@@ -1016,6 +1018,52 @@ func (p *plugin) warnDeprecatedEvent(ctx context.Context, event Event) {
 	}
 
 	p.impl.warned[event] = true
+}
+
+// handleRequestError handles an error from a relayed request. ctx is the
+// runtime context without the per-request timeout.
+//
+// The function returns errors unchanged when:
+//
+//   - the plugin returned the error, or
+//   - the runtime cancelled ctx or the runtime deadline expired.
+//
+// A fatal error is a plugin failure: the plugin did not answer the request.
+// The failure policy of the plugin applies. The function makes two
+// independent decisions. It drops the plugin unless the policy keeps it
+// (see dropsPlugin). It fails the request only if the policy says so.
+// Otherwise the request proceeds without the plugin. A returned error
+// names the plugin and the request because the runtime reports it.
+func (p *plugin) handleRequestError(ctx context.Context, event Event, err error) error {
+	if ctx.Err() != nil || !isFatalError(err) {
+		return err
+	}
+
+	if p.dropsPlugin(err) {
+		log.Errorf(ctx, "closing plugin %s, failed to handle %s request: %v",
+			p.name(), event.PrettyName(), err)
+		p.close()
+	}
+
+	if !p.policy.GetFailRequest() {
+		log.Warnf(ctx, "plugin %s failed to handle %s request, proceeding without it: %v",
+			p.name(), event.PrettyName(), err)
+		return nil
+	}
+
+	return fmt.Errorf("plugin %s failed to handle %s request: %w",
+		p.name(), event.PrettyName(), err)
+}
+
+// dropsPlugin returns true if the plugin must be closed and unregistered
+// for the error. A fatal error drops the plugin, with one exception: a
+// request timeout does not drop a plugin with KeepConnected set. A lost
+// connection or a protocol error always drops the plugin.
+func (p *plugin) dropsPlugin(err error) bool {
+	if !isFatalError(err) {
+		return false
+	}
+	return !errors.Is(err, context.DeadlineExceeded) || !p.policy.GetKeepConnected()
 }
 
 // isFatalError returns true if the error is fatal and the plugin connection should be closed.

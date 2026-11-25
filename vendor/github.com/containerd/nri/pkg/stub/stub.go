@@ -41,7 +41,7 @@ import (
 // least one of these interfaces and this is verified during stub creation.
 // Trying to create a stub for a plugin violating this requirement will fail
 // with and error.
-type Plugin interface{}
+type Plugin any
 
 // ConfigureInterface handles Configure API request.
 type ConfigureInterface interface {
@@ -62,6 +62,13 @@ type SynchronizeInterface interface {
 type ShutdownInterface interface {
 	// Shutdown notifies the plugin about the runtime shutting down.
 	Shutdown(context.Context)
+}
+
+// PluginStatusInterface handles an UpdatePluginStatus API request.
+type PluginStatusInterface interface {
+	// UpdatePluginStatus notifies the plugin about its status in the
+	// runtime, with a human readable reason for it.
+	UpdatePluginStatus(context.Context, api.PluginStatus, string) error
 }
 
 // RunPodInterface handles RunPodSandbox API events.
@@ -169,6 +176,23 @@ type Stub interface {
 
 	// UpdateContainer requests unsolicited updates to containers.
 	UpdateContainers([]*api.ContainerUpdate) ([]*api.ContainerUpdate, error)
+
+	// Status returns the status the runtime last reported for this
+	// plugin. It is PLUGIN_STATUS_UNKNOWN if the runtime reported none,
+	// which is the case for a runtime which does not send plugin status
+	// updates, and whenever the plugin is not connected.
+	Status() api.PluginStatus
+
+	// IsLive returns true if the runtime reported this plugin as the live
+	// instance of its name and the connection is still up.
+	//
+	// Note: if the runtime is too old to send plugin status updates,
+	// IsLive() never reports true.
+	IsLive() bool
+
+	// IsStarted returns true if the plugin has been started by Start() or
+	// Run() and its connection to the runtime is up.
+	IsStarted() bool
 
 	// RegistrationTimeout returns the registration timeout for the stub.
 	// This is the default timeout if the plugin has not been started or
@@ -283,10 +307,32 @@ func WithLogger(logger nrilog.Logger) Option {
 	}
 }
 
+// WithFailurePolicy sets how the runtime handles a failure of the plugin to
+// process a request. A failure is a request timeout, a lost connection, or a
+// protocol error. The policy has two independent fields:
+//
+//   - FailRequest: fail the request with an error. Default: the request
+//     proceeds without the plugin.
+//   - KeepConnected: keep the plugin registered when it exceeds the request
+//     timeout. Default: the runtime disconnects the plugin. A plugin that
+//     loses its connection is always disconnected.
+//
+// An error returned by the plugin always fails the request. A runtime that
+// does not support failure policies ignores this option.
+func WithFailurePolicy(policy *api.FailurePolicy) Option {
+	return func(s *stub) error {
+		if policy == nil {
+			return fmt.Errorf("nil failure policy")
+		}
+		s.failurePolicy = policy
+		return nil
+	}
+}
+
 // stub implements Stub.
 type stub struct {
 	sync.Mutex
-	plugin     interface{}
+	plugin     any
 	handlers   handlers
 	events     api.EventMask
 	name       string
@@ -307,9 +353,11 @@ type stub struct {
 	srvErrC    chan error
 	cfgErrC    chan error
 	syncReq    *api.SynchronizeRequest
+	status     api.PluginStatus
 
 	registrationTimeout time.Duration
 	requestTimeout      time.Duration
+	failurePolicy       *api.FailurePolicy
 	runtimeNRIVersion   string
 	pluginNRIVersion    string
 	logger              nrilog.Logger
@@ -320,6 +368,7 @@ type handlers struct {
 	Configure                   func(context.Context, string, string, string) (api.EventMask, error)
 	Synchronize                 func(context.Context, []*api.PodSandbox, []*api.Container) ([]*api.ContainerUpdate, error)
 	Shutdown                    func(context.Context)
+	UpdatePluginStatus          func(context.Context, api.PluginStatus, string) error
 	RunPodSandbox               func(context.Context, *api.PodSandbox) error
 	UpdatePodSandbox            func(context.Context, *api.PodSandbox, *api.LinuxResources, *api.LinuxResources) error
 	StopPodSandbox              func(context.Context, *api.PodSandbox) error
@@ -337,7 +386,7 @@ type handlers struct {
 }
 
 // New creates a stub with the given plugin and options.
-func New(p interface{}, opts ...Option) (Stub, error) {
+func New(p any, opts ...Option) (Stub, error) {
 	stub := &stub{
 		plugin:     p,
 		name:       os.Getenv(api.PluginNameEnvVar),
@@ -475,7 +524,8 @@ func (stub *stub) Stop() {
 	stub.close()
 }
 
-// IsStarted returns true if the plugin has been started either by Start() or by Run().
+// IsStarted returns true if the plugin has been started by Start() or by
+// Run() and its connection to the runtime is up.
 func (stub *stub) IsStarted() bool {
 	stub.Lock()
 	defer stub.Unlock()
@@ -512,6 +562,7 @@ func (stub *stub) close() {
 	stub.started = false
 	stub.conn = nil
 	stub.syncReq = nil
+	stub.status = api.PluginStatus_PLUGIN_STATUS_UNKNOWN
 }
 
 // Run the plugin. Start event processing then wait for an error or getting stopped.
@@ -709,7 +760,8 @@ func (stub *stub) Configure(ctx context.Context, req *api.ConfigureRequest) (rpl
 	}
 
 	return &api.ConfigureResponse{
-		Events: int32(events),
+		Events:        int32(events),
+		FailurePolicy: stub.failurePolicy,
 	}, nil
 }
 
@@ -771,6 +823,39 @@ func (stub *stub) Shutdown(ctx context.Context, _ *api.ShutdownRequest) (*api.Sh
 		handler(ctx)
 	}
 	return &api.ShutdownResponse{}, nil
+}
+
+// UpdatePluginStatus records the status of the plugin in the runtime.
+func (stub *stub) UpdatePluginStatus(ctx context.Context, req *api.UpdatePluginStatusRequest) (*api.UpdatePluginStatusResponse, error) {
+	status, reason := req.GetStatus(), req.GetReason()
+
+	stub.Lock()
+	stub.status = status
+	stub.Unlock()
+
+	stub.logger.Infof(ctx, "plugin status in the runtime: %s (%s)", status, reason)
+
+	handler := stub.handlers.UpdatePluginStatus
+	if handler == nil {
+		return &api.UpdatePluginStatusResponse{}, nil
+	}
+
+	err := handler(ctx, status, reason)
+	return &api.UpdatePluginStatusResponse{}, err
+}
+
+// Status returns the status the runtime last reported for this plugin.
+func (stub *stub) Status() api.PluginStatus {
+	stub.Lock()
+	defer stub.Unlock()
+
+	return stub.status
+}
+
+// IsLive returns true if the runtime reported this plugin as the live
+// instance of its name and the connection is still up.
+func (stub *stub) IsLive() bool {
+	return stub.Status() == api.PluginStatus_PLUGIN_STATUS_LIVE
 }
 
 // RunPodSandbox request handler.
@@ -1003,6 +1088,9 @@ func (stub *stub) setupHandlers() error {
 	}
 	if plugin, ok := stub.plugin.(ShutdownInterface); ok {
 		stub.handlers.Shutdown = plugin.Shutdown
+	}
+	if plugin, ok := stub.plugin.(PluginStatusInterface); ok {
+		stub.handlers.UpdatePluginStatus = plugin.UpdatePluginStatus
 	}
 
 	if plugin, ok := stub.plugin.(RunPodInterface); ok {

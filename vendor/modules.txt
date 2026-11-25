@@ -184,7 +184,7 @@ github.com/containerd/go-runc
 # github.com/containerd/log v0.1.0
 ## explicit; go 1.20
 github.com/containerd/log
-# github.com/containerd/nri v0.12.2
+# github.com/containerd/nri v0.12.2 => /u/src/kli/work/devel/nri/graceful-plugin-updates
 ## explicit; go 1.24.0
 github.com/containerd/nri/pkg/adaptation
 github.com/containerd/nri/pkg/adaptation/builtin
@@ -1822,3 +1822,4 @@ tags.cncf.io/container-device-interface/pkg/parser
 # tags.cncf.io/container-device-interface/specs-go v1.1.1
 ## explicit; go 1.19
 tags.cncf.io/container-device-interface/specs-go
+# github.com/containerd/nri => /u/src/kli/work/devel/nri/graceful-plugin-updates

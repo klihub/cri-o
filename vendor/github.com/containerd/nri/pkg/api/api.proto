@@ -86,6 +86,9 @@ service Plugin {
   // Shutdown a plugin (let it know the runtime is going down).
   rpc Shutdown(Empty) returns (Empty);
 
+  // UpdatePluginStatus tells the plugin its status in the runtime.
+  rpc UpdatePluginStatus(UpdatePluginStatusRequest) returns (UpdatePluginStatusResponse);
+
   // RunPodSandbox relays the corresponding request to the plugin.
   rpc RunPodSandbox(RunPodSandboxRequest) returns (RunPodSandboxResponse);
 
@@ -183,7 +186,56 @@ message ConfigureResponse {
   // Events to subscribe the plugin for. Each bit set corresponds to an
   // enumerated Event.
   int32 events = 2;
+  // How the runtime handles a failure of the plugin to process a request.
+  // When unset, the runtime disconnects the plugin and lets the request
+  // proceed without it.
+  FailurePolicy failure_policy = 3;
 }
+
+// FailurePolicy specifies how the runtime handles a plugin failure during
+// request processing. Failures include request timeouts, lost connections,
+// and protocol errors. Errors returned by the plugin always fail the
+// request and are not governed by this policy.
+//
+// The runtime makes two independent decisions for each failure: one about
+// the request and one about the plugin. Each field controls one decision.
+// When unset, the runtime disconnects the plugin and lets the request
+// proceed without it.
+message FailurePolicy {
+  // Fail the request if the plugin fails. The error names the plugin and
+  // the request, like an error returned by the plugin. The remaining
+  // plugins do not receive the request. Default: false; the request
+  // proceeds with the remaining plugins, as if the failed plugin were not
+  // subscribed to it.
+  bool fail_request = 1;
+  // Keep the plugin registered when it exceeds the request timeout. The
+  // plugin continues receiving requests. A plugin that stays unresponsive
+  // delays each request it receives by the full timeout. Default: false;
+  // the runtime disconnects and unregisters the plugin. This field only
+  // applies to timeouts. A plugin that loses its connection or causes a
+  // protocol error is always disconnected.
+  bool keep_connected = 2;
+}
+
+// PluginStatus is the status of a plugin in the runtime.
+enum PluginStatus {
+  PLUGIN_STATUS_UNKNOWN = 0;
+  // The plugin is the instance of its name which gets relayed requests
+  // and events.
+  PLUGIN_STATUS_LIVE = 1;
+  // The plugin was replaced by another instance of its name. It stays
+  // connected, but gets no requests or events.
+  PLUGIN_STATUS_PARKED = 2;
+}
+
+message UpdatePluginStatusRequest {
+  // Status of the plugin in the runtime.
+  PluginStatus status = 1;
+  // Human readable reason for the status.
+  string reason = 2;
+}
+
+message UpdatePluginStatusResponse {}
 
 message SynchronizeRequest {
   // Pods known to the runtime.
